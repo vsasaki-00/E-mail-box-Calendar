@@ -267,6 +267,9 @@ export default async function TorreDeControle() {
           {dados && (
             <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
           )}
+          <a href="/triagem" className="sub" style={{ marginRight: 14 }}>
+            triagem →
+          </a>
           <a href="/perfis" className="sub" style={{ marginRight: 14 }}>
             perfis das caixas →
           </a>

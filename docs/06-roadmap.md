@@ -167,9 +167,11 @@ sub-fases de risco crescente, cada uma utilizável sozinha:
   Nenhuma ação tomada. Pré-filtro determinístico, classificador com saída
   estruturada, avaliação contra histórico, card na Torre de Controle e a
   tela `/perfis` (negócio, papel, objetivo, calibragem, VIPs por caixa)
-  estão implementados e testados (105 testes novos). **A chamada real ao
-  modelo nunca foi exercitada** — não há API key neste ambiente. Falta a UI
-  de correção da triagem.
+  e a tela `/triagem` (ordenada por urgência, com correção que alimenta o
+  `TriageFeedback`) estão implementados e testados. **A chamada real ao
+  modelo nunca foi exercitada** — não há API key neste ambiente, então
+  nada aqui mede se a classificação ACERTA, só que o sistema em volta dela
+  se comporta.
 - **5B — Painel financeiro**: extração estruturada das cobranças
   (valor, vencimento, beneficiário, linha digitável). Melhor relação
   valor/risco do projeto: verificável contra o e-mail original, nada

@@ -391,7 +391,7 @@ histórico real antes de confiar.
 
 1. Configurar `ANTHROPIC_API_KEY` e rodar a triagem numa caixa real.
 2. Rodar a avaliação contra o histórico e publicar o número.
-3. UI de correção da triagem (alimenta `TriageFeedback`).
+3. ~~UI de correção da triagem~~ ✅ **entregue** — `/triagem`. Ver abaixo.
 4. ~~Tela do `MailboxProfile`~~ ✅ **entregue** — `/perfis`. Ver abaixo.
 5. Job que deriva o `VoiceProfile` da pasta Enviados e o mostra para você
    validar.
@@ -430,3 +430,41 @@ deduplica as listas (`Cliente@Grande.com, grande.com, cliente@grande.com` →
 `["cliente@grande.com", "grande.com"]`); e o perfil salvo **chega de fato ao
 prompt** — confirmado que negócio, papel, objetivo, calibragem e
 palavras-chave aparecem no texto gerado por `buildSystemPrompt`.
+
+
+---
+
+# Tela de triagem (`/triagem`) ✅
+
+**Ordenada pelo que exige ação, não por data.** Urgente primeiro; entre itens
+de mesma prioridade, o de **menor confiança** vem antes — é o que mais precisa
+do seu olho. Ordenar por data faria a lista virar uma caixa de entrada comum,
+que é exatamente o que este produto existe para não ser.
+
+Quatro filtros: **Precisam de ação** (padrão) · **Revisar (baixa confiança)** ·
+**Cobranças** · **Tudo**.
+
+Cada linha mostra a categoria, a prioridade, e **o motivo da classificação**
+com a confiança — é isso que permite discordar de forma informada, em vez de
+só ver um rótulo. Itens com confiança abaixo de 60% ganham uma faixa lateral
+e nunca somem da lista.
+
+O botão é **"discordo"**, e a correção fica escondida atrás dele de propósito:
+a lista precisa ser escaneável em segundos, e seis selects abertos em cada
+item transformariam a triagem num formulário.
+
+**A garantia que importa**: corrigir marca a linha como `source: USER` com
+confiança 1, e **nenhuma reclassificação futura sobrescreve isso**. Verificado
+em execução real — o modelo tentou reclassificar um item corrigido como SPAM
+e foi bloqueado (`skippedUserOverride: 1`), categoria intacta.
+
+Cada correção grava um `TriageFeedback` com o de-para
+(`INFORMATIVE → COBRANCA`, `LOW → URGENT`). É o insumo que faz o sistema
+melhorar; sem capturá-lo, você desistiria dele em três semanas.
+
+O rodapé mostra quantos itens foram classificados, quantos faltam e quantas
+correções suas já foram registradas.
+
+**Verificado**: os quatro filtros retornando o conjunto certo; ordenação por
+urgência; selo "corrigido por você" após a correção; item migrando de filtro
+ao ser recategorizado; e o bloqueio de sobrescrita descrito acima.

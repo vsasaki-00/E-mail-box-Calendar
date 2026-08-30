@@ -31,6 +31,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **Sync real com Apple iCloud / IMAP genérico** | 🔶 implementado, mas não validado contra servidor real (ver `docs/03-conectores.md`) |
 | **Triagem por IA** (prioridade, cobrança, precisa-resposta) | 🔶 lógica completa e testada; chamada real ao modelo não exercitada (sem API key no ambiente) |
 | **Perfis das caixas** (negócio, papel, objetivo, calibragem, VIPs) | ✅ `src/app/perfis/` |
+| **Tela de triagem com correção** (alimenta o aprendizado) | ✅ `src/app/triagem/` |
 | **Perfil de voz por caixa** (derivado da pasta Enviados) | 🔶 extração implementada e testada; falta o job e a UI de validação |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
