@@ -295,6 +295,19 @@ model UnifiedItem {
   @@index([userId, kind, occurredAt])
 }
 
+/// Estado efemero do fluxo OAuth: o `state` do CSRF e o verifier do PKCE.
+/// TTL curto, consumido uma unica vez no callback. Ver docs/04-seguranca.md
+model OAuthState {
+  state         String   @id
+  provider      String
+  codeVerifier  String
+  redirectAfter String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}
+
 // ---------------------------------------------------------------------------
 // Sincronizacao
 // ---------------------------------------------------------------------------
@@ -306,6 +319,8 @@ model SyncState {
   connectionId String
   resource     SyncResource
   cursor       String?
+  /// Token da pagina em andamento, quando o full sync foi interrompido no meio.
+  pageToken    String?
   status       SyncStatus   @default(IDLE)
   lastFullSyncAt DateTime?
   lastSyncAt   DateTime?

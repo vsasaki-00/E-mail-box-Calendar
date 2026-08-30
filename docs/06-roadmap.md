@@ -18,16 +18,39 @@ entrega valor.
 
 ---
 
-## Fase 1 — Primeira conta real, leitura ponta a ponta
+## Fase 1 — Primeira conta real, leitura ponta a ponta ✅ (esta entrega)
 
-- OAuth Google completo (PKCE, callback, refresh, revogação).
-- Conector Gmail: full sync + incremental por `historyId`.
-- Conector Google Calendar: full sync + `syncToken`.
-- Worker de sync com agendamento e checkpoints.
-- Inbox unificada e Agenda unificada com dados reais.
+- OAuth Google completo: PKCE, `state` com TTL e proteção contra replay
+  (`OAuthState`), callback, refresh proativo, revogação ao desconectar.
+- Conector Gmail: full sync (`messages.list` + `messages.get` em lote,
+  paginado e retomável) e incremental por `historyId` via `history.list`,
+  com queda automática para full sync quando o histórico expira.
+- Conector Google Calendar: full sync com `singleEvents=true` (recorrência
+  já expandida pelo Google) e incremental por `syncToken`, um token por
+  calendário.
+- Camada de persistência (`core/sync/persist.ts`): upsert idempotente,
+  vínculo com `UnifiedItem` pela chave de deduplicação, reconciliação de
+  `copyCount` e remoção de itens órfãos.
+- Motor de sync ligado à persistência real, com paginação retomável
+  (`pageToken` em `SyncState`) e descoberta automática de calendário novo.
+- Página `/conexoes`: conectar via Google, listar contas, sincronizar agora,
+  desconectar (com revogação de token no provedor).
+- Link "gerenciar conexões" na Torre de Controle.
 
 **Critério de aceite**: conectar uma conta Google e ver e-mails e eventos reais
 na tela, com sync incremental funcionando por 24 h sem intervenção.
+
+**Verificado nesta entrega** (sem credenciais reais do Google, que exigem um
+projeto no Google Cloud Console): o fluxo OAuth foi validado ponta a ponta
+contra os servidores reais do Google (`/api/auth/google/start` gera a URL de
+autorização correta com escopos somente-leitura e PKCE; o callback faz uma
+chamada real ao endpoint de token e trata o erro de credencial inválida
+corretamente; reenviar o mesmo `state` é bloqueado como replay). O motor de
+sync foi testado contra uma conexão sem credenciais e degradou para
+`REAUTH_REQUIRED` sem derrubar o processo. 92 testes automatizados cobrem a
+normalização Gmail/Calendar, deduplicação, detecção de conflitos e backoff.
+O que falta para "conectar de verdade": criar as credenciais OAuth no Google
+Cloud Console e colocá-las no `.env`.
 
 ---
 

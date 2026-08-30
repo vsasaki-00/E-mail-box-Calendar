@@ -8,7 +8,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 
 ---
 
-## O que existe hoje (Fase 0)
+## O que existe hoje (Fase 1)
 
 | | Estado |
 |---|---|
@@ -19,15 +19,25 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | Deduplicação entre contas (Message-ID / iCalUID) | ✅ `src/core/unified/dedupe.ts` |
 | Detecção de conflitos e janelas de foco | ✅ `src/core/metrics/conflicts.ts` |
 | Política de retentativa e backoff do sync | ✅ `src/core/sync/backoff.ts` |
-| Motor de sync e worker | ✅ estrutura pronta, aguardando os conectores |
 | Torre de Controle renderizando | ✅ `src/app/page.tsx` |
-| **Sync real com Google / Microsoft / IMAP** | ⛔ Fases 1–2 |
-| **Fluxo OAuth ponta a ponta** | ⛔ URLs e PKCE prontos; callback e troca de token na fase 1 |
+| **OAuth do Google ponta a ponta** (PKCE, state com TTL, refresh, revogação) | ✅ `src/app/api/auth/google/` |
+| **Sync real do Gmail** (full + incremental por `historyId`) | ✅ `src/lib/connectors/google.ts` |
+| **Sync real do Google Calendar** (full + `syncToken` por calendário) | ✅ `src/lib/connectors/google.ts` |
+| Persistência idempotente + reconciliação de itens unificados | ✅ `src/core/sync/persist.ts` |
+| Página de conexões (conectar, sincronizar, desconectar) | ✅ `src/app/conexoes/` |
+| **Sync real com Microsoft / Apple / IMAP** | ⛔ Fase 2 |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
-Os conectores declaram capacidades reais e traduzem erros de verdade, mas os
-métodos de busca **falham de forma explícita** em vez de devolver listas vazias
-— ausência de implementação não deve se disfarçar de "caixa sem mensagens".
+Os conectores da fase 2 (Microsoft, Apple, IMAP genérico) declaram
+capacidades reais e traduzem erros de verdade, mas os métodos de busca
+**falham de forma explícita** em vez de devolver listas vazias — ausência de
+implementação não deve se disfarçar de "caixa sem mensagens".
+
+O fluxo OAuth do Google foi validado ponta a ponta contra os servidores reais
+do Google (veja `docs/06-roadmap.md`). Para conectar uma conta de verdade,
+falta apenas criar as credenciais no
+[Google Cloud Console](https://console.cloud.google.com) e colocá-las no
+`.env` — veja abaixo.
 
 Roadmap completo por fases: [`docs/06-roadmap.md`](docs/06-roadmap.md).
 
@@ -57,10 +67,29 @@ chegando em duas contas (que deve virar **uma** linha, não um conflito) e uma
 reunião do Microsoft sobrepondo uma consulta do Google (que **deve** aparecer
 como conflito), além de uma conta atrasada e uma precisando reautenticar.
 
+### Conectando uma conta Google de verdade
+
+1. No [Google Cloud Console](https://console.cloud.google.com), crie um
+   projeto, ative a **Gmail API** e a **Google Calendar API**, e crie uma
+   credencial OAuth 2.0 do tipo *Web application*.
+2. Em **Authorized redirect URIs**, adicione
+   `http://localhost:3000/api/auth/google/callback`.
+3. Enquanto o app estiver em modo de teste (*Testing*), adicione seu e-mail
+   como usuário de teste na tela de consentimento — sem isso o Google recusa
+   o login.
+4. Cole `Client ID` e `Client Secret` em `GOOGLE_CLIENT_ID` e
+   `GOOGLE_CLIENT_SECRET` no `.env`.
+5. Rode `pnpm dev`, abra `http://localhost:3000/conexoes` e clique em
+   **Conectar conta Google**.
+
+O primeiro sync roda na hora (a página chama `/api/connections/:id/sync`);
+os seguintes rodam pelo worker (`pnpm worker`), a cada
+`SYNC_INTERVAL_SECONDS`.
+
 ### Outros comandos
 
 ```bash
-pnpm test        # 67 testes de núcleo, sem banco
+pnpm test        # 92 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

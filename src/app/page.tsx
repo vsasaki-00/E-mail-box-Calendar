@@ -222,11 +222,14 @@ export default async function TorreDeControle() {
           <h1>Torre de Comando</h1>
           <p className="sub">Todas as caixas de e-mail e todos os calendarios, em um lugar so.</p>
         </div>
-        {dados && (
-          <span className="sub">
-            estado de {dados.generatedAt.toLocaleString('pt-BR')}
-          </span>
-        )}
+        <div style={{ textAlign: 'right' }}>
+          {dados && (
+            <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
+          )}
+          <a href="/conexoes" className="sub">
+            gerenciar conexões →
+          </a>
+        </div>
       </header>
 
       {erro && <SemBanco erro={erro} />}
