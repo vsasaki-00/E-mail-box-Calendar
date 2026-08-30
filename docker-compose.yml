@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: torre-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: torre
+      POSTGRES_PASSWORD: torre
+      POSTGRES_DB: torre
+    ports:
+      - '5432:5432'
+    volumes:
+      - torre-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U torre -d torre']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  torre-pgdata:

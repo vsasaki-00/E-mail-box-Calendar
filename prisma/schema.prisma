@@ -1,0 +1,384 @@
+// Modelo de dados do gerenciador unificado de e-mails e calendarios.
+// A racional de cada entidade esta em docs/02-modelo-de-dados.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Provider {
+  GOOGLE
+  MICROSOFT
+  APPLE
+  IMAP_CALDAV
+}
+
+enum ConnectionStatus {
+  ACTIVE
+  DEGRADED
+  REAUTH_REQUIRED
+  DISABLED
+  ERROR
+}
+
+enum SyncResource {
+  MAIL
+  CALENDAR
+  CONTACTS
+}
+
+enum SyncStatus {
+  IDLE
+  RUNNING
+  BACKOFF
+  CURSOR_EXPIRED
+  FAILED
+}
+
+enum SyncRunOutcome {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum UnifiedKind {
+  MESSAGE
+  EVENT
+}
+
+enum EventStatus {
+  CONFIRMED
+  TENTATIVE
+  CANCELLED
+}
+
+enum ResponseStatus {
+  NEEDS_ACTION
+  ACCEPTED
+  DECLINED
+  TENTATIVE
+  ORGANIZER
+}
+
+enum AlertSeverity {
+  INFO
+  WARN
+  CRITICAL
+}
+
+// ---------------------------------------------------------------------------
+// Usuario e conexoes
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  timezone  String   @default("America/Sao_Paulo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connections   Connection[]
+  unifiedItems  UnifiedItem[]
+  rules         Rule[]
+  alerts        Alert[]
+}
+
+/// Uma conta conectada: uma caixa de e-mail e/ou um conjunto de calendarios
+/// de um provedor. E a entidade central do sistema.
+model Connection {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    Provider
+  /// Endereco principal da conta, usado como rotulo na UI.
+  accountEmail String
+  displayName String?
+  /// Cor usada para identificar esta conta na agenda unificada.
+  color       String   @default("#6366f1")
+
+  /// O que esta conexao sabe fazer. Preenchido pelo conector; o nucleo le
+  /// daqui em vez de ramificar por provedor. Ver docs/03-conectores.md
+  capabilities Json
+
+  /// Configuracao nao sensivel do conector (host/porta IMAP, urls CalDAV...).
+  config Json @default("{}")
+
+  // --- Credenciais cifradas (AES-256-GCM). Ver docs/04-seguranca.md ---
+  /// Nunca guardamos segredo em claro. Um dump do banco nao da acesso a caixa.
+  secretCiphertext String?
+  secretIv         String?
+  secretTag        String?
+  secretKeyId      String?
+  /// Vencimento do access token, para refresh proativo.
+  tokenExpiresAt   DateTime?
+
+  status           ConnectionStatus @default(ACTIVE)
+  lastSyncAt       DateTime?
+  lastErrorAt      DateTime?
+  lastErrorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailboxes       Mailbox[]
+  calendarSources CalendarSource[]
+  messages        Message[]
+  events          CalendarEvent[]
+  syncStates      SyncState[]
+  syncRuns        SyncRun[]
+
+  @@unique([userId, provider, accountEmail])
+  @@index([userId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Containers dentro de uma conexao
+// ---------------------------------------------------------------------------
+
+/// Pasta ou label de e-mail dentro de uma conexao.
+model Mailbox {
+  id           String  @id @default(cuid())
+  connectionId String
+  providerId   String
+  name         String
+  /// INBOX, SENT, ARCHIVE, SPAM, TRASH, CUSTOM
+  role         String  @default("CUSTOM")
+  /// Se entra na Inbox Unificada. O usuario escolhe.
+  includeInUnified Boolean @default(false)
+  unreadCount  Int     @default(0)
+  totalCount   Int     @default(0)
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messages   Message[]
+
+  @@unique([connectionId, providerId])
+}
+
+/// Um calendario dentro de uma conexao.
+model CalendarSource {
+  id           String  @id @default(cuid())
+  connectionId String
+  providerId   String
+  name         String
+  timezone     String?
+  color        String?
+  isPrimary    Boolean @default(false)
+  isReadOnly   Boolean @default(true)
+  /// Se entra na Agenda Unificada. Calendarios de feriados normalmente ficam fora.
+  includeInUnified Boolean @default(true)
+
+  connection Connection      @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  events     CalendarEvent[]
+
+  @@unique([connectionId, providerId])
+}
+
+// ---------------------------------------------------------------------------
+// Itens
+// ---------------------------------------------------------------------------
+
+/// Uma copia fisica de um e-mail, em uma conexao. O mesmo e-mail recebido em
+/// tres caixas gera tres Message e um unico UnifiedItem.
+model Message {
+  id           String  @id @default(cuid())
+  connectionId String
+  mailboxId    String?
+  providerId   String
+  providerThreadId String?
+
+  /// Cabecalho Message-ID (RFC 5322). Chave primaria de deduplicacao.
+  rfcMessageId String?
+
+  subject     String?
+  snippet     String?
+  fromName    String?
+  fromEmail   String?
+  toEmails    Json    @default("[]")
+  ccEmails    Json    @default("[]")
+  receivedAt  DateTime
+  isRead      Boolean @default(false)
+  isFlagged   Boolean @default(false)
+  hasAttachments Boolean @default(false)
+  labels      Json    @default("[]")
+
+  /// Corpo e carregado sob demanda: sincronizar 90 dias de corpo de 6 caixas
+  /// e caro em banco e em quota do provedor.
+  bodyText     String?
+  bodyHtml     String?
+  bodyFetchedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection    Connection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  mailbox       Mailbox?     @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+  unifiedItem   UnifiedItem? @relation(fields: [unifiedItemId], references: [id], onDelete: SetNull)
+  unifiedItemId String?
+
+  @@unique([connectionId, providerId])
+  @@index([connectionId, receivedAt])
+  @@index([rfcMessageId])
+  @@index([unifiedItemId])
+}
+
+/// Um evento em um calendario de uma conexao. Recorrencias sao armazenadas
+/// expandidas dentro da janela sincronizada (uma linha por ocorrencia).
+model CalendarEvent {
+  id               String  @id @default(cuid())
+  connectionId     String
+  calendarSourceId String
+  providerId       String
+
+  /// iCalUID (RFC 5545). Estavel entre provedores: chave de deduplicacao.
+  iCalUid          String?
+  /// Id da serie, quando esta linha e uma ocorrencia de evento recorrente.
+  recurringEventId String?
+
+  title       String?
+  description String?
+  location    String?
+  startsAt    DateTime
+  endsAt      DateTime
+  isAllDay    Boolean  @default(false)
+  timezone    String?
+  status      EventStatus    @default(CONFIRMED)
+  responseStatus ResponseStatus @default(NEEDS_ACTION)
+  organizerEmail String?
+  attendees   Json     @default("[]")
+  conferenceUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection     Connection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  calendarSource CalendarSource @relation(fields: [calendarSourceId], references: [id], onDelete: Cascade)
+  unifiedItem    UnifiedItem?   @relation(fields: [unifiedItemId], references: [id], onDelete: SetNull)
+  unifiedItemId  String?
+
+  @@unique([connectionId, providerId])
+  @@index([connectionId, startsAt])
+  @@index([iCalUid])
+  @@index([unifiedItemId])
+}
+
+/// Agrupador de deduplicacao. Aponta para 1..N copias do mesmo item logico.
+/// A Inbox e a Agenda unificadas leem desta tabela.
+model UnifiedItem {
+  id        String      @id @default(cuid())
+  userId    String
+  kind      UnifiedKind
+  /// Chave canonica: Message-ID, iCalUID ou hash de fallback. Ver ADR-4.
+  dedupeKey String
+  /// Campos desnormalizados da copia representativa, para listar sem join.
+  title     String?
+  preview   String?
+  occurredAt DateTime
+  copyCount Int         @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+  events   CalendarEvent[]
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, kind, occurredAt])
+}
+
+// ---------------------------------------------------------------------------
+// Sincronizacao
+// ---------------------------------------------------------------------------
+
+/// Cursor por (conexao, recurso). Permite retomar sync e detectar cursor
+/// expirado (historyId do Gmail, deltaLink do Graph, ctag do CalDAV...).
+model SyncState {
+  id           String       @id @default(cuid())
+  connectionId String
+  resource     SyncResource
+  cursor       String?
+  status       SyncStatus   @default(IDLE)
+  lastFullSyncAt DateTime?
+  lastSyncAt   DateTime?
+  nextRunAt    DateTime?
+  /// Numero de falhas consecutivas, usado para backoff exponencial.
+  failureCount Int          @default(0)
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, resource])
+  @@index([nextRunAt])
+}
+
+/// Historico de execucoes de sync. Alimenta o painel de saude.
+model SyncRun {
+  id           String         @id @default(cuid())
+  connectionId String
+  resource     SyncResource
+  startedAt    DateTime       @default(now())
+  finishedAt   DateTime?
+  outcome      SyncRunOutcome?
+  itemsCreated Int            @default(0)
+  itemsUpdated Int            @default(0)
+  itemsDeleted Int            @default(0)
+  errorMessage String?
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Automacao e comando
+// ---------------------------------------------------------------------------
+
+/// Regra de automacao avaliada sobre UnifiedItem, nunca sobre o formato bruto
+/// do provedor.
+model Rule {
+  id        String  @id @default(cuid())
+  userId    String
+  name      String
+  enabled   Boolean @default(true)
+  priority  Int     @default(100)
+  condition Json
+  action    Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, enabled, priority])
+}
+
+/// O que a Torre de Controle precisa gritar. O dedupeKey evita que o mesmo
+/// conflito vire dezenas de alertas ao longo do dia.
+model Alert {
+  id        String        @id @default(cuid())
+  userId    String
+  severity  AlertSeverity @default(WARN)
+  /// CONNECTION_DOWN, SYNC_STALE, CALENDAR_CONFLICT, SLA_BREACH, REAUTH_NEEDED
+  kind      String
+  title     String
+  detail    String?
+  dedupeKey String
+  context   Json     @default("{}")
+  acknowledgedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, acknowledgedAt, severity])
+}
