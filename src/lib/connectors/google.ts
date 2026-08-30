@@ -1,4 +1,3 @@
-import { randomBytes, createHash } from 'node:crypto';
 import type {
   Connector,
   ConnectorCapabilities,
@@ -13,14 +12,14 @@ import type {
 import { ConnectorError } from './types';
 import { ensureGoogleAccessToken } from './google-auth';
 import { GOOGLE_TOKEN_ENDPOINT, mapGoogleError } from './google-errors';
+import { createPkcePair, type PkcePair } from './pkce';
+import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
 import {
   encodeMailPageToken,
   decodeMailPageToken,
   normalizeGmailMessage,
   normalizeGoogleEvent,
   labelRole,
-  parseCalendarCursor,
-  serializeCalendarCursor,
   type GmailMessageResource,
   type GmailPart,
   type GoogleEventResource,
@@ -70,17 +69,9 @@ export const googleCapabilities: ConnectorCapabilities = {
 // OAuth
 // ---------------------------------------------------------------------------
 
-export interface PkcePair {
-  verifier: string;
-  challenge: string;
-}
-
-/** PKCE e obrigatorio mesmo no fluxo server-side. Ver docs/04-seguranca.md */
-export function createPkcePair(): PkcePair {
-  const verifier = randomBytes(32).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge };
-}
+// Reexportados por compatibilidade: o resto do app (e os testes) importam
+// PKCE a partir daqui. A implementacao e generica, em ./pkce.
+export { createPkcePair, type PkcePair };
 
 export function buildGoogleAuthUrl(params: {
   clientId: string;
@@ -230,7 +221,7 @@ export const googleConnector: Connector = {
   },
 
   async fetchEvents(ctx, options): Promise<Page<RawEvent>> {
-    const janelaCursor = parseCalendarCursor(options.cursor);
+    const janelaCursor = parseContainerCursor(options.cursor);
     const calendarios = await googleConnector.listCalendars(ctx);
 
     const itens: RawEvent[] = [];
@@ -253,7 +244,7 @@ export const googleConnector: Connector = {
     return {
       items: itens,
       deletedProviderIds: removidos,
-      cursor: serializeCalendarCursor(tokens),
+      cursor: serializeContainerCursor(tokens),
     };
   },
 

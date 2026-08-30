@@ -54,15 +54,55 @@ Cloud Console e colocá-las no `.env`.
 
 ---
 
-## Fase 2 — Multi-conta e multi-provedor
+## Fase 2 — Multi-conta e multi-provedor 🔶 (em andamento — Microsoft entregue)
 
-- OAuth Microsoft (MSAL) + conectores Graph mail/calendar com `deltaLink`.
-- Conector IMAP/CalDAV genérico + preset Apple iCloud.
-- Deduplicação ativa entre contas (`Message-ID`, `iCalUID`).
-- Seletor de quais pastas/calendários entram na visão unificada.
+- ✅ **OAuth Microsoft** (PKCE, `state` com TTL compartilhado com o Google via
+  `OAuthState`, refresh proativo). Tenant `common`: mesma conexão atende
+  conta pessoal (Hotmail/Outlook.com/Live) e conta corporativa/escolar.
+- ✅ **Conector Outlook Mail**: sincroniza por pasta (Graph não tem uma lista
+  única "todas as pastas" como o Gmail) — Caixa de Entrada, Enviados,
+  Rascunhos e Arquivo por padrão, cada uma com seu próprio `deltaLink` via
+  `messages/delta`. Pastas resolvidas pelo **alias bem-conhecido**
+  (`/me/mailFolders/inbox`), não pelo nome de exibição — que é localizado e
+  quebraria em qualquer idioma diferente de inglês.
+- ✅ **Conector Outlook Calendar**: `calendarView/delta`, que devolve
+  instâncias já expandidas dentro de uma janela (equivalente ao
+  `singleEvents=true` do Google), um `deltaLink` por calendário. Datas
+  normalizadas para UTC via `Prefer: outlook.timezone="UTC"`, evitando mapear
+  nomes de fuso horário do Windows para IANA.
+- ✅ Refatoração: PKCE (`pkce.ts`) e o codec de cursor multi-container
+  (`container-cursor.ts`) viraram módulos compartilhados entre Google e
+  Microsoft — o mesmo padrão de "um token por container" (calendário ou,
+  agora, pasta de e-mail) não precisou ser reimplementado.
+- ✅ Deduplicação ativa entre contas (`Message-ID`, `iCalUID`) — já era
+  provider-agnóstica desde a fase 1, funciona sem alteração para Microsoft.
+- ⛔ Conector IMAP/CalDAV genérico + preset Apple iCloud — pendente.
+- ⛔ Seletor de quais pastas/calendários entram na visão unificada — hoje o
+  padrão (`Mailbox.includeInUnified`) é fixo por papel (`INBOX` = sim, resto
+  = não); falta a UI para o usuário alternar.
 
 **Critério de aceite**: todas as suas caixas e calendários em uma única tela,
 com o mesmo convite aparecendo uma vez só.
+
+**Verificado nesta entrega** (sem app registration real no Microsoft Entra):
+`/api/auth/microsoft/start` gera a URL de autorização correta (tenant
+`common`, escopos `Mail.Read Calendars.Read User.Read offline_access`, PKCE);
+o callback fez uma chamada real ao endpoint de token da Microsoft e recebeu
+`AADSTS9002313` (client inválido, esperado com credencial de teste) tratado
+corretamente; reenvio do mesmo `state` bloqueado como replay; motor de sync
+testado contra uma conexão Microsoft sem credenciais degradou para
+`REAUTH_REQUIRED` sem derrubar o processo. 105 testes automatizados (13
+novos: normalização de mensagem/evento do Graph, incluindo o caso do
+`dateTime` sem sufixo `Z` que precisa ser interpretado como UTC).
+
+**Gap conhecido, não introduzido nesta fase**: `Mailbox.includeInUnified` e
+`CalendarSource.includeInUnified` já existem no schema e são respeitados pelo
+`persist.ts`, mas a Torre de Controle (`control-tower.ts`) ainda não filtra
+as consultas de backlog por esse campo — todo Message sincronizado conta no
+backlog de triagem, independente da caixa. Não é um problema visível hoje
+porque mensagens de pastas como "Enviados" normalmente já estão marcadas como
+lidas, mas é uma amarração pendente para a fase 3 (Torre de Controle
+completa), não específica do conector Microsoft.
 
 ---
 

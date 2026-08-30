@@ -8,7 +8,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 
 ---
 
-## O que existe hoje (Fase 1)
+## O que existe hoje (Fase 2 em andamento)
 
 | | Estado |
 |---|---|
@@ -23,21 +23,25 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **OAuth do Google ponta a ponta** (PKCE, state com TTL, refresh, revogação) | ✅ `src/app/api/auth/google/` |
 | **Sync real do Gmail** (full + incremental por `historyId`) | ✅ `src/lib/connectors/google.ts` |
 | **Sync real do Google Calendar** (full + `syncToken` por calendário) | ✅ `src/lib/connectors/google.ts` |
+| **OAuth do Microsoft ponta a ponta** (aceita conta pessoal Hotmail/Outlook.com e corporativa) | ✅ `src/app/api/auth/microsoft/` |
+| **Sync real do Outlook Mail** (por pasta, `messages/delta`) | ✅ `src/lib/connectors/microsoft.ts` |
+| **Sync real do Outlook Calendar** (`calendarView/delta`, fuso normalizado p/ UTC) | ✅ `src/lib/connectors/microsoft.ts` |
 | Persistência idempotente + reconciliação de itens unificados | ✅ `src/core/sync/persist.ts` |
 | Página de conexões (conectar, sincronizar, desconectar) | ✅ `src/app/conexoes/` |
-| **Sync real com Microsoft / Apple / IMAP** | ⛔ Fase 2 |
+| **Sync real com Apple iCloud / IMAP genérico** | ⛔ resto da fase 2 |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
-Os conectores da fase 2 (Microsoft, Apple, IMAP genérico) declaram
+Os conectores que ainda faltam (Apple iCloud, IMAP genérico) declaram
 capacidades reais e traduzem erros de verdade, mas os métodos de busca
 **falham de forma explícita** em vez de devolver listas vazias — ausência de
 implementação não deve se disfarçar de "caixa sem mensagens".
 
-O fluxo OAuth do Google foi validado ponta a ponta contra os servidores reais
-do Google (veja `docs/06-roadmap.md`). Para conectar uma conta de verdade,
-falta apenas criar as credenciais no
-[Google Cloud Console](https://console.cloud.google.com) e colocá-las no
-`.env` — veja abaixo.
+O fluxo OAuth do Google e do Microsoft foram validados ponta a ponta contra
+os servidores reais de cada provedor (veja `docs/06-roadmap.md`). Para
+conectar uma conta de verdade, falta apenas criar as credenciais no
+[Google Cloud Console](https://console.cloud.google.com) e/ou no
+[Microsoft Entra](https://entra.microsoft.com) e colocá-las no `.env` — veja
+abaixo.
 
 Roadmap completo por fases: [`docs/06-roadmap.md`](docs/06-roadmap.md).
 
@@ -86,10 +90,33 @@ O primeiro sync roda na hora (a página chama `/api/connections/:id/sync`);
 os seguintes rodam pelo worker (`pnpm worker`), a cada
 `SYNC_INTERVAL_SECONDS`.
 
+### Conectando uma conta Microsoft de verdade (Hotmail, Outlook.com ou corporativa)
+
+1. No [Microsoft Entra admin center](https://entra.microsoft.com), vá em
+   **App registrations** → **New registration**.
+2. Em **Supported account types**, escolha *Accounts in any organizational
+   directory and personal Microsoft accounts* — é isso que faz a mesma
+   conexão aceitar tanto Hotmail/Outlook.com pessoal quanto conta
+   corporativa/escolar.
+3. Em **Redirect URI**, adicione (tipo *Web*)
+   `http://localhost:3000/api/auth/microsoft/callback`.
+4. Em **Certificates & secrets**, crie um *Client secret* e copie o valor na
+   hora — ele só aparece uma vez.
+5. Em **API permissions**, adicione `Mail.Read`, `Calendars.Read`,
+   `User.Read` e `offline_access` (delegadas, tipo Microsoft Graph).
+6. Cole o `Application (client) ID` e o *Client secret* em
+   `MICROSOFT_CLIENT_ID` e `MICROSOFT_CLIENT_SECRET` no `.env`.
+7. Rode `pnpm dev`, abra `http://localhost:3000/conexoes` e clique em
+   **Conectar conta Microsoft**.
+
+Diferente do Google, não existe modo de teste separado nem lista de test
+users — qualquer conta consegue autorizar assim que o app registration
+existe, inclusive sua própria conta pessoal.
+
 ### Outros comandos
 
 ```bash
-pnpm test        # 92 testes de núcleo, sem banco
+pnpm test        # 105 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

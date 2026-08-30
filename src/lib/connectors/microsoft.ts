@@ -10,13 +10,32 @@ import type {
   RawMessage,
 } from './types';
 import { ConnectorError } from './types';
+import { ensureMicrosoftAccessToken, fetchMicrosoftAccountEmail } from './microsoft-auth';
+import { MICROSOFT_TOKEN_ENDPOINT_BASE, mapMicrosoftError } from './microsoft-errors';
+import { createPkcePair, type PkcePair } from './pkce';
+import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
+import {
+  DEFAULT_SYNCED_FOLDER_ALIASES,
+  folderRole,
+  normalizeGraphEvent,
+  normalizeGraphMessage,
+  type GraphEventResource,
+  type GraphMessageResource,
+} from './microsoft-normalize';
 
 /**
- * Conector Microsoft (Outlook + Calendar via Graph). Ver docs/03-conectores.md
+ * Conector Microsoft (Outlook Mail + Calendar via Graph). Ver docs/03-conectores.md
  *
- * Estado: OAuth e mapeamento de erro implementados; sincronizacao entra na
- * fase 2 do roadmap.
+ * Sync de e-mail: por pasta (Graph nao tem uma lista unica "todas as pastas"
+ * como o Gmail), com `messages/delta` por pasta. Sync de calendario:
+ * `calendarView/delta`, que devolve instancias ja expandidas dentro de uma
+ * janela, igual ao `singleEvents=true` do Google.
+ *
+ * `common` como tenant aceita tanto conta pessoal (Hotmail/Outlook.com/Live)
+ * quanto conta corporativa ou escolar (Azure AD) com o mesmo fluxo.
  */
+
+export { createPkcePair, type PkcePair };
 
 export const MICROSOFT_SCOPES = [
   'Mail.Read',
@@ -24,6 +43,46 @@ export const MICROSOFT_SCOPES = [
   'User.Read',
   'offline_access',
 ] as const;
+
+const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
+
+/** Paginas por container numa unica execucao, contra loop infinito. */
+const MAX_PAGES_PER_CONTAINER = 60;
+const MAIL_PAGE_SIZE = 50;
+const CALENDAR_PAGE_SIZE = 100;
+
+const MESSAGE_SELECT = [
+  'id',
+  'conversationId',
+  'internetMessageId',
+  'subject',
+  'bodyPreview',
+  'from',
+  'toRecipients',
+  'ccRecipients',
+  'receivedDateTime',
+  'isRead',
+  'flag',
+  'hasAttachments',
+].join(',');
+
+const EVENT_SELECT = [
+  'id',
+  'iCalUId',
+  'seriesMasterId',
+  'subject',
+  'bodyPreview',
+  'location',
+  'isAllDay',
+  'isCancelled',
+  'start',
+  'end',
+  'organizer',
+  'attendees',
+  'onlineMeeting',
+  'onlineMeetingUrl',
+  'responseStatus',
+].join(',');
 
 export const microsoftCapabilities: ConnectorCapabilities = {
   mail: true,
@@ -36,16 +95,20 @@ export const microsoftCapabilities: ConnectorCapabilities = {
   pollIntervalSeconds: 300,
 };
 
+// ---------------------------------------------------------------------------
+// OAuth
+// ---------------------------------------------------------------------------
+
 export function buildMicrosoftAuthUrl(params: {
   clientId: string;
   redirectUri: string;
   state: string;
   codeChallenge: string;
-  /** "common" aceita contas pessoais e corporativas. */
+  /** "common" aceita contas pessoais (Hotmail/Outlook.com) e corporativas. */
   tenant?: string;
 }): string {
   const tenant = params.tenant || 'common';
-  const url = new URL(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`);
+  const url = new URL(`${MICROSOFT_TOKEN_ENDPOINT_BASE}/${tenant}/oauth2/v2.0/authorize`);
   url.searchParams.set('client_id', params.clientId);
   url.searchParams.set('redirect_uri', params.redirectUri);
   url.searchParams.set('response_type', 'code');
@@ -57,61 +120,329 @@ export function buildMicrosoftAuthUrl(params: {
   return url.toString();
 }
 
-/**
- * O Graph faz throttling agressivo com 429 + Retry-After. Ignorar esse header
- * derruba a conexao inteira por horas, entao ele e sempre respeitado.
- */
-export function mapMicrosoftError(
-  status: number,
-  retryAfterHeader?: string | null,
-): ConnectorError {
-  const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : undefined;
-  switch (status) {
-    case 401:
-      return new ConnectorError('AUTH_EXPIRED', 'Token do Microsoft Graph expirado');
-    case 403:
-      return new ConnectorError('PERMANENT', 'Permissao insuficiente no Microsoft Graph');
-    case 404:
-      return new ConnectorError('NOT_FOUND', 'Recurso nao encontrado no Graph');
-    case 410:
-      return new ConnectorError('CURSOR_EXPIRED', 'deltaLink expirado; requer full sync');
-    case 429:
-      return new ConnectorError('RATE_LIMITED', 'Throttling do Graph', retryAfter ?? 30);
-    default:
-      if (status >= 500) {
-        return new ConnectorError('TRANSIENT', `Erro ${status} no Graph`, retryAfter ?? 10);
-      }
-      return new ConnectorError('PERMANENT', `Erro ${status} no Graph`);
+export { mapMicrosoftError };
+
+// ---------------------------------------------------------------------------
+// Cliente HTTP
+// ---------------------------------------------------------------------------
+
+/** Segue uma URL do Graph verbatim (usada para @odata.nextLink/deltaLink, que ja vem com query embutida). */
+async function graphFetch<T>(
+  ctx: ConnectorContext,
+  url: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
+  const token = await ensureMicrosoftAccessToken(ctx);
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, ...extraHeaders },
+  });
+
+  if (!response.ok) {
+    throw mapMicrosoftError(response.status, response.headers.get('retry-after'));
   }
+  return (await response.json()) as T;
 }
 
-function naoImplementado(recurso: string): never {
-  throw new ConnectorError(
-    'PERMANENT',
-    `Sync de ${recurso} do Microsoft entra na fase 2 do roadmap (docs/06-roadmap.md)`,
+async function graphGet<T>(
+  ctx: ConnectorContext,
+  path: string,
+  params: Record<string, string | number | boolean | undefined> = {},
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
+  const alvo = new URL(`${GRAPH_BASE}${path}`);
+  for (const [chave, valor] of Object.entries(params)) {
+    if (valor !== undefined) alvo.searchParams.set(chave, String(valor));
+  }
+  return graphFetch<T>(ctx, alvo.toString(), extraHeaders);
+}
+
+interface GraphDeltaPage<T> {
+  value: T[];
+  '@odata.nextLink'?: string;
+  '@odata.deltaLink'?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pastas de e-mail (mailFolders)
+// ---------------------------------------------------------------------------
+
+interface GraphFolder {
+  id: string;
+  displayName: string;
+}
+
+/**
+ * Resolve os aliases bem-conhecidos (`/me/mailFolders/inbox`, etc.) em vez de
+ * listar e casar por `displayName`, que e localizado e quebraria em uma caixa
+ * em portugues, alemao etc. Ver microsoft-normalize.ts.
+ */
+type FolderAlias = (typeof DEFAULT_SYNCED_FOLDER_ALIASES)[number];
+
+async function resolveWellKnownFolders(
+  ctx: ConnectorContext,
+): Promise<{ alias: FolderAlias; folder: GraphFolder }[]> {
+  const resultados = await Promise.all(
+    DEFAULT_SYNCED_FOLDER_ALIASES.map(async (alias) => {
+      try {
+        const folder = await graphGet<GraphFolder>(ctx, `/me/mailFolders/${alias}`, {
+          $select: 'id,displayName',
+        });
+        return { alias, folder };
+      } catch (error) {
+        // Nem toda caixa tem pasta "Archive"; ausencia de uma pasta opcional
+        // nao e falha de sync.
+        if (error instanceof ConnectorError && error.code === 'NOT_FOUND') return null;
+        throw error;
+      }
+    }),
+  );
+  return resultados.filter(
+    (item): item is { alias: FolderAlias; folder: GraphFolder } => item !== null,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Conector
+// ---------------------------------------------------------------------------
 
 export const microsoftConnector: Connector = {
   provider: 'MICROSOFT',
   capabilities: microsoftCapabilities,
 
-  async verify(_ctx: ConnectorContext) {
-    return naoImplementado('verificacao');
+  async verify(ctx) {
+    const token = await ensureMicrosoftAccessToken(ctx);
+    const accountEmail = await fetchMicrosoftAccountEmail(token);
+    return { accountEmail };
   },
-  async listMailboxes(_ctx: ConnectorContext): Promise<RawMailbox[]> {
-    return naoImplementado('pastas');
+
+  async listMailboxes(ctx): Promise<RawMailbox[]> {
+    const conhecidas = await resolveWellKnownFolders(ctx);
+    const idsConhecidos = new Set(conhecidas.map((item) => item.folder.id));
+
+    // Pastas extras criadas pelo usuario, no nivel raiz. O Graph so lista o
+    // primeiro nivel por padrao; subpastas ficam para uma fase futura.
+    const outras = await graphGet<{ value: GraphFolder[] }>(ctx, '/me/mailFolders', {
+      $top: 250,
+      $select: 'id,displayName',
+    });
+
+    const caixas: RawMailbox[] = conhecidas.map(({ alias, folder }) => ({
+      providerId: folder.id,
+      name: folder.displayName,
+      role: folderRole(alias),
+    }));
+
+    for (const pasta of outras.value ?? []) {
+      if (idsConhecidos.has(pasta.id)) continue;
+      caixas.push({ providerId: pasta.id, name: pasta.displayName, role: 'CUSTOM' });
+    }
+
+    return caixas;
   },
-  async listCalendars(_ctx: ConnectorContext): Promise<RawCalendar[]> {
-    return naoImplementado('calendarios');
+
+  async listCalendars(ctx): Promise<RawCalendar[]> {
+    const resposta = await graphGet<{
+      value: { id: string; name?: string; color?: string; isDefaultCalendar?: boolean; canEdit?: boolean }[];
+    }>(ctx, '/me/calendars', { $top: 250, $select: 'id,name,color,isDefaultCalendar,canEdit' });
+
+    return (resposta.value ?? []).map((calendario) => ({
+      providerId: calendario.id,
+      name: calendario.name ?? calendario.id,
+      isPrimary: calendario.isDefaultCalendar === true,
+      isReadOnly: calendario.canEdit === false,
+    }));
   },
-  async fetchMessages(_ctx: ConnectorContext, _o: FetchOptions): Promise<Page<RawMessage>> {
-    return naoImplementado('mensagens');
+
+  async fetchMessages(ctx, _options: FetchOptions): Promise<Page<RawMessage>> {
+    // Recurso multi-container (uma pasta = um container, cada uma com seu
+    // proprio deltaLink): mesmo padrao usado no calendario. Ver fetchEvents.
+    const cursorAnterior = parseContainerCursor(_options.cursor);
+    const pastas = await microsoftConnector.listMailboxes(ctx);
+    // So sincroniza as pastas padrao (inbox/sentitems/drafts/archive) + as que
+    // ja tinham cursor de uma execucao anterior (o usuario pode ter marcado
+    // uma pasta extra para entrar na visao unificada).
+    const alvo = pastas.filter(
+      (pasta) => pasta.role !== 'TRASH' && pasta.role !== 'SPAM' && (
+        pasta.role !== 'CUSTOM' || cursorAnterior[pasta.providerId]
+      ),
+    );
+
+    const itens: RawMessage[] = [];
+    const removidos: string[] = [];
+    const tokens: Record<string, string> = {};
+
+    for (const pasta of alvo) {
+      const resultado = await fetchMessagesDaPasta(ctx, pasta.providerId, cursorAnterior[pasta.providerId]);
+      itens.push(...resultado.itens);
+      removidos.push(...resultado.removidos);
+      if (resultado.deltaLink) tokens[pasta.providerId] = resultado.deltaLink;
+    }
+
+    return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
   },
-  async fetchEvents(_ctx: ConnectorContext, _o: FetchOptions): Promise<Page<RawEvent>> {
-    return naoImplementado('eventos');
+
+  async fetchEvents(ctx, options): Promise<Page<RawEvent>> {
+    const cursorAnterior = parseContainerCursor(options.cursor);
+    const calendarios = await microsoftConnector.listCalendars(ctx);
+
+    const itens: RawEvent[] = [];
+    const removidos: string[] = [];
+    const tokens: Record<string, string> = {};
+
+    for (const calendario of calendarios) {
+      const resultado = await fetchEventsDoCalendario(
+        ctx,
+        calendario.providerId,
+        cursorAnterior[calendario.providerId],
+        options.window,
+      );
+      itens.push(...resultado.itens);
+      removidos.push(...resultado.removidos);
+      if (resultado.deltaLink) tokens[calendario.providerId] = resultado.deltaLink;
+    }
+
+    return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
   },
-  async fetchMessageBody(_ctx: ConnectorContext, _id: string) {
-    return naoImplementado('corpo de mensagem');
+
+  async fetchMessageBody(ctx, providerId) {
+    const mensagem = await graphGet<{ body?: { contentType?: string; content?: string } }>(
+      ctx,
+      `/me/messages/${encodeURIComponent(providerId)}`,
+      { $select: 'body' },
+    );
+    const conteudo = mensagem.body?.content;
+    if (!conteudo) return {};
+    return mensagem.body?.contentType === 'html' ? { html: conteudo } : { text: conteudo };
   },
 };
+
+// ---------------------------------------------------------------------------
+// E-mail: delta por pasta
+// ---------------------------------------------------------------------------
+
+async function fetchMessagesDaPasta(
+  ctx: ConnectorContext,
+  folderId: string,
+  deltaLinkAnterior: string | undefined,
+): Promise<{ itens: RawMessage[]; removidos: string[]; deltaLink?: string }> {
+  const itens: RawMessage[] = [];
+  const removidos: string[] = [];
+
+  let url = deltaLinkAnterior;
+  let deltaLink: string | undefined;
+  let paginas = 0;
+
+  if (!url) {
+    const alvo = new URL(`${GRAPH_BASE}/me/mailFolders/${folderId}/messages/delta`);
+    alvo.searchParams.set('$select', MESSAGE_SELECT);
+    alvo.searchParams.set('$top', String(MAIL_PAGE_SIZE));
+    url = alvo.toString();
+  }
+
+  do {
+    // `url` e garantidamente definida aqui: setada antes do loop, ou pelo
+    // `@odata.nextLink` da iteracao anterior, que e o que mantem o loop indo.
+    const resposta: GraphDeltaPage<GraphMessageResource & { '@removed'?: unknown }> =
+      await graphFetch(ctx, url!);
+
+    for (const item of resposta.value) {
+      if ('@removed' in item && item['@removed']) {
+        removidos.push(item.id);
+        continue;
+      }
+      itens.push(normalizeGraphMessage(item, folderId));
+    }
+
+    url = resposta['@odata.nextLink'];
+    if (resposta['@odata.deltaLink']) deltaLink = resposta['@odata.deltaLink'];
+    paginas += 1;
+  } while (url && paginas < MAX_PAGES_PER_CONTAINER);
+
+  if (url) {
+    throw new ConnectorError(
+      'TRANSIENT',
+      `Pasta ${folderId} excedeu ${MAX_PAGES_PER_CONTAINER} paginas numa execucao`,
+    );
+  }
+
+  return { itens, removidos, deltaLink };
+}
+
+// ---------------------------------------------------------------------------
+// Calendario: delta por calendario (calendarView/delta)
+// ---------------------------------------------------------------------------
+
+async function fetchEventsDoCalendario(
+  ctx: ConnectorContext,
+  calendarId: string,
+  deltaLinkAnterior: string | undefined,
+  janela: FetchOptions['window'],
+): Promise<{ itens: RawEvent[]; removidos: string[]; deltaLink?: string }> {
+  const itens: RawEvent[] = [];
+  const removidos: string[] = [];
+
+  let url = deltaLinkAnterior;
+  let deltaLink: string | undefined;
+  let paginas = 0;
+
+  if (!url) {
+    const janelaEfetiva = janela ?? janelaPadrao();
+    const alvo = new URL(`${GRAPH_BASE}/me/calendars/${calendarId}/calendarView/delta`);
+    alvo.searchParams.set('startDateTime', janelaEfetiva.since.toISOString());
+    alvo.searchParams.set('endDateTime', janelaEfetiva.until.toISOString());
+    alvo.searchParams.set('$select', EVENT_SELECT);
+    alvo.searchParams.set('$top', String(CALENDAR_PAGE_SIZE));
+    url = alvo.toString();
+  }
+
+  do {
+    let resposta: GraphDeltaPage<GraphEventResource & { '@removed'?: unknown }>;
+    try {
+      // O Prefer normaliza todos os dateTime da resposta para UTC, evitando
+      // ter que mapear nomes de fuso horario do Windows para IANA.
+      resposta = await graphFetch(ctx, url, { Prefer: 'outlook.timezone="UTC"' });
+    } catch (error) {
+      if (error instanceof ConnectorError && error.code === 'CURSOR_EXPIRED') throw error;
+      throw error;
+    }
+
+    for (const item of resposta.value) {
+      if ('@removed' in item && item['@removed']) {
+        removidos.push(item.id);
+        continue;
+      }
+      const normalizado = normalizeGraphEvent(item, calendarId);
+      if (normalizado) itens.push(normalizado);
+    }
+
+    url = resposta['@odata.nextLink'];
+    if (resposta['@odata.deltaLink']) deltaLink = resposta['@odata.deltaLink'];
+    paginas += 1;
+  } while (url && paginas < MAX_PAGES_PER_CONTAINER);
+
+  if (url) {
+    throw new ConnectorError(
+      'TRANSIENT',
+      `Calendario ${calendarId} excedeu ${MAX_PAGES_PER_CONTAINER} paginas numa execucao`,
+    );
+  }
+
+  return { itens, removidos, deltaLink };
+}
+
+/**
+ * Janela padrao do full sync. Assim como no Google, ela fica "gravada" no
+ * deltaLink inicial: chamadas de incremental seguintes reusam a mesma janela
+ * automaticamente, sem precisar reenviar startDateTime/endDateTime.
+ */
+function janelaPadrao(): { since: Date; until: Date } {
+  const mesesPassado = Number(process.env.SYNC_CALENDAR_PAST_MONTHS ?? 1);
+  const mesesFuturo = Number(process.env.SYNC_CALENDAR_FUTURE_MONTHS ?? 12);
+
+  const since = new Date();
+  since.setMonth(since.getMonth() - mesesPassado);
+  const until = new Date();
+  until.setMonth(until.getMonth() + mesesFuturo);
+
+  return { since, until };
+}

@@ -37,14 +37,50 @@ inválido → full sync.
 `messages.get` com `format=metadata` é muito mais barato que `format=full` —
 por isso o corpo é sob demanda.
 
-## Microsoft
+## Microsoft ✅ implementado (fase 2)
 
 **Escopos**: `Mail.Read`, `Calendars.Read`, `User.Read`, `offline_access`.
-Endpoint comum (`/common`) para aceitar contas pessoais e corporativas.
+Endpoint comum (`/common`) para aceitar contas pessoais (Hotmail/Outlook.com/
+Live) e corporativas/escolares (Azure AD) com o mesmo fluxo — não há
+distinção de código entre as duas.
 
-**Sync**: `/me/messages/delta` e `/me/calendarView/delta`. O `deltaLink` volta
-no fim de cada página final. `calendarView` (e não `/events`) é o endpoint que
-expande recorrências dentro de uma janela.
+**Sync de e-mail**: por pasta, com `/me/mailFolders/{id}/messages/delta`. O
+Graph não tem um endpoint de lista única "todas as pastas" equivalente ao
+`messages.list` do Gmail (que, na prática, cobre a caixa inteira menos Lixeira
+e Spam em uma chamada só) — cada pasta é seu próprio recurso, com seu próprio
+`deltaLink`. O conector sincroniza por padrão `Inbox`, `SentItems`, `Drafts` e
+`Archive` (quando existe), usando o mesmo padrão "um token por container" já
+usado no calendário — ver `src/lib/connectors/container-cursor.ts`.
+
+As pastas padrão são resolvidas pelo **alias bem-conhecido**
+(`/me/mailFolders/inbox`, `/me/mailFolders/sentitems`...), nunca pelo
+`displayName`: o nome de exibição é localizado ("Caixa de Entrada" em
+pt-BR, "Posteingang" em de-DE) e casar por texto quebraria em qualquer
+idioma diferente do inglês.
+
+**Sync de calendário**: `/me/calendars/{id}/calendarView/delta`, que devolve
+instâncias já expandidas dentro de uma janela — equivalente ao
+`singleEvents=true` do Google Calendar. O `deltaLink` volta no fim da última
+página (`@odata.deltaLink`); páginas intermediárias trazem `@odata.nextLink`,
+uma URL completa que o conector segue verbatim.
+
+**Cuidado com fuso horário**: por padrão, o Graph devolve `start.dateTime` e
+`end.dateTime` como horário **local no fuso indicado em `timeZone`**, sem
+sufixo `Z` — não é UTC. O conector envia o header `Prefer:
+outlook.timezone="UTC"` em toda chamada de calendário, o que faz o Graph
+normalizar essas datas para UTC (ainda sem o sufixo `Z`, então o parser
+força a interpretação como UTC explicitamente). Sem isso, seria necessário
+mapear nomes de fuso horário do Windows ("Pacific Standard Time") para IANA
+— uma fonte clássica de bug de horário errado.
+
+**Resposta do usuário ao convite**: o Graph já resolve `event.responseStatus`
+como a resposta do usuário logado diretamente — diferente do Google, que
+exige procurar "self" na lista de participantes.
+
+**Sem revogação programática de token**: ao contrário do Google (`/revoke`),
+o Microsoft Identity Platform não tem um endpoint público equivalente.
+Desconectar uma conta Microsoft apaga o token localmente; revogar de fato
+exige o usuário remover o acesso em `myaccount.microsoft.com/consent`.
 
 **Cuidado**: o Graph aplica throttling agressivo com `429 + Retry-After`.
 O cliente HTTP do conector respeita `Retry-After` com backoff exponencial —

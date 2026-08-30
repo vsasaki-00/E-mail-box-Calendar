@@ -42,6 +42,18 @@ export default async function PaginaConexoes() {
   const googleConfigurado = Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
   );
+  const microsoftConfigurado = Boolean(
+    process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET,
+  );
+
+  const botaoConectar = {
+    padding: '8px 14px',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    cursor: 'pointer',
+  } as const;
 
   return (
     <main className="shell">
@@ -58,31 +70,36 @@ export default async function PaginaConexoes() {
       <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
         <section className="card">
           <h2>Conectar uma conta</h2>
-          {googleConfigurado ? (
-            <a href="/api/auth/google/start">
-              <button
-                type="button"
-                style={{
-                  padding: '8px 14px',
-                  borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                }}
-              >
-                Conectar conta Google
-              </button>
-            </a>
-          ) : (
-            <p className="vazio">
-              Configure <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> e{' '}
-              <code>GOOGLE_REDIRECT_URI</code> no <code>.env</code> para habilitar o Google. Ver{' '}
-              <code>docs/03-conectores.md</code>.
-            </p>
-          )}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {googleConfigurado ? (
+              <a href="/api/auth/google/start">
+                <button type="button" style={botaoConectar}>
+                  Conectar conta Google
+                </button>
+              </a>
+            ) : (
+              <p className="vazio">
+                Configure <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> e{' '}
+                <code>GOOGLE_REDIRECT_URI</code> no <code>.env</code> para habilitar o Google.
+              </p>
+            )}
+            {microsoftConfigurado ? (
+              <a href="/api/auth/microsoft/start">
+                <button type="button" style={botaoConectar}>
+                  Conectar conta Microsoft
+                </button>
+              </a>
+            ) : (
+              <p className="vazio">
+                Configure <code>MICROSOFT_CLIENT_ID</code> e <code>MICROSOFT_CLIENT_SECRET</code>{' '}
+                no <code>.env</code> para habilitar o Microsoft (aceita Hotmail/Outlook.com
+                pessoal e conta corporativa).
+              </p>
+            )}
+          </div>
           <p className="sub" style={{ marginTop: 12 }}>
-            Microsoft, Apple iCloud e IMAP/CalDAV genérico chegam nas fases 2 do roadmap.
+            Ver <code>docs/03-conectores.md</code>. Apple iCloud e IMAP/CalDAV genérico chegam na
+            continuação da fase 2.
           </p>
         </section>
 
