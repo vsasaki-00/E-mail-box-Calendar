@@ -30,6 +30,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | Página de conexões (conectar, sincronizar, desconectar) | ✅ `src/app/conexoes/` |
 | **Sync real com Apple iCloud / IMAP genérico** | 🔶 implementado, mas não validado contra servidor real (ver `docs/03-conectores.md`) |
 | **Triagem por IA** (prioridade, cobrança, precisa-resposta) | 🔶 lógica completa e testada; chamada real ao modelo não exercitada (sem API key no ambiente) |
+| **Perfis das caixas** (negócio, papel, objetivo, calibragem, VIPs) | ✅ `src/app/perfis/` |
 | **Perfil de voz por caixa** (derivado da pasta Enviados) | 🔶 extração implementada e testada; falta o job e a UI de validação |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
@@ -146,7 +147,7 @@ com a mensagem real do servidor.
 ### Outros comandos
 
 ```bash
-pnpm test        # 222 testes de núcleo, sem banco
+pnpm test        # 235 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

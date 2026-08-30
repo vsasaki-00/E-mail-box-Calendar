@@ -63,9 +63,14 @@ export default async function PaginaConexoes() {
           <h1>Conexões</h1>
           <p className="sub">Contas de e-mail e calendário conectadas à Torre de Comando.</p>
         </div>
-        <a href="/" className="sub">
-          ← voltar
-        </a>
+        <div>
+          <a href="/perfis" className="sub" style={{ marginRight: 14 }}>
+            perfis das caixas →
+          </a>
+          <a href="/" className="sub">
+            ← voltar
+          </a>
+        </div>
       </header>
 
       <div className="grid" style={{ gridTemplateColumns: '1fr' }}>

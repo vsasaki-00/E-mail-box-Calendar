@@ -165,10 +165,11 @@ sub-fases de risco crescente, cada uma utilizável sozinha:
 - **5A — Triagem** 🔶: classifica categoria, prioridade e "precisa resposta?"
   usando **só metadados** (sem enviar corpo de e-mail para lugar nenhum).
   Nenhuma ação tomada. Pré-filtro determinístico, classificador com saída
-  estruturada, avaliação contra histórico e card na Torre de Controle estão
-  implementados e testados (92 testes novos). **A chamada real ao modelo
-  nunca foi exercitada** — não há API key neste ambiente. Falta a UI de
-  correção e a tela do `MailboxProfile`.
+  estruturada, avaliação contra histórico, card na Torre de Controle e a
+  tela `/perfis` (negócio, papel, objetivo, calibragem, VIPs por caixa)
+  estão implementados e testados (105 testes novos). **A chamada real ao
+  modelo nunca foi exercitada** — não há API key neste ambiente. Falta a UI
+  de correção da triagem.
 - **5B — Painel financeiro**: extração estruturada das cobranças
   (valor, vencimento, beneficiário, linha digitável). Melhor relação
   valor/risco do projeto: verificável contra o e-mail original, nada

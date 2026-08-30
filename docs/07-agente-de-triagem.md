@@ -392,8 +392,41 @@ histórico real antes de confiar.
 1. Configurar `ANTHROPIC_API_KEY` e rodar a triagem numa caixa real.
 2. Rodar a avaliação contra o histórico e publicar o número.
 3. UI de correção da triagem (alimenta `TriageFeedback`).
-4. Tela do `MailboxProfile` — hoje o perfil de cada negócio só existe no
-   banco, sem forma de editar. **É o gap mais relevante**: sem ele a
-   calibragem por caixa que você escolheu não tem como ser configurada.
+4. ~~Tela do `MailboxProfile`~~ ✅ **entregue** — `/perfis`. Ver abaixo.
 5. Job que deriva o `VoiceProfile` da pasta Enviados e o mostra para você
    validar.
+
+---
+
+# Tela de perfis (`/perfis`) ✅
+
+Os seis contextos são uma **lista fixa**, não texto livre:
+
+`Unitedcom` · `Cordex.AI` · `Brand.co` (palestras/treinamentos) ·
+`EmpreendaSim` · `Outros` · `Pessoais`
+
+O motivo é que o nome do negócio **entra no prompt de triagem**: "Cordex.AI",
+"cordex.ai" e "Cordex" produziriam contextos diferentes para o modelo entre
+caixas que deveriam ser tratadas igual.
+
+**Por caixa se define**: negócio, seu papel nele, objetivo (texto livre, vai
+direto no prompt), calibragem, remetentes VIP e palavras que indicam urgência
+naquele negócio.
+
+**Defaults por contexto, deliberadamente magros.** Caixa de negócio nasce
+`CONSERVATIVE` — esconder o primeiro e-mail de um cliente novo é um dano que
+você nunca fica sabendo; `Pessoais` nasce `AGGRESSIVE`, porque é cheia de
+newsletter e perder uma não custa nada. Palavras-chave sugeridas **só para
+Brand.co**, o único contexto cuja área você me informou. Chutar palavras para
+Unitedcom, Cordex.AI ou EmpreendaSim viraria instrução errada dentro do
+prompt de toda mensagem daquelas caixas — então elas nascem vazias, para você
+preencher.
+
+Trocar o negócio aplica os defaults **apenas em caixa ainda sem perfil
+salvo**; nunca sobrescreve o que você já escreveu.
+
+**Verificado**: a tela renderiza com os seis contextos; salvar normaliza e
+deduplica as listas (`Cliente@Grande.com, grande.com, cliente@grande.com` →
+`["cliente@grande.com", "grande.com"]`); e o perfil salvo **chega de fato ao
+prompt** — confirmado que negócio, papel, objetivo, calibragem e
+palavras-chave aparecem no texto gerado por `buildSystemPrompt`.
