@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { desconectar, sincronizarAgora } from './actions';
+import { FormularioImapCaldav } from './imap-form';
 
 /**
  * Pagina de conexoes: conectar contas novas e gerenciar as existentes.
@@ -97,9 +98,11 @@ export default async function PaginaConexoes() {
               </p>
             )}
           </div>
+          <div style={{ marginTop: 14 }}>
+            <FormularioImapCaldav />
+          </div>
           <p className="sub" style={{ marginTop: 12 }}>
-            Ver <code>docs/03-conectores.md</code>. Apple iCloud e IMAP/CalDAV genérico chegam na
-            continuação da fase 2.
+            Ver <code>docs/03-conectores.md</code>.
           </p>
         </section>
 

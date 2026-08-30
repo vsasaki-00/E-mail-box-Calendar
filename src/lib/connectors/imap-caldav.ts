@@ -10,6 +10,21 @@ import type {
   RawMessage,
 } from './types';
 import { ConnectorError } from './types';
+import {
+  fetchImapMessageBody,
+  fetchImapMessages,
+  listImapMailboxes,
+  verifyImapConnection,
+  type ImapConnectionConfig,
+} from './imap-client';
+import { encodeImapCursor } from './imap-normalize';
+import {
+  fetchCaldavEvents,
+  listCaldavCalendars,
+  verifyCaldavConnection,
+  type CaldavConnectionConfig,
+} from './caldav-client';
+import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
 
 /**
  * Conector IMAP + CalDAV. Atende o Apple iCloud e qualquer provedor generico
@@ -18,6 +33,10 @@ import { ConnectorError } from './types';
  * Do ponto de vista do nucleo, o iCloud e apenas este conector com defaults
  * pre-preenchidos — mesma implementacao, configuracao diferente.
  * Ver docs/03-conectores.md
+ *
+ * Sem OAuth: usa IMAP (RFC 3501, via imapflow) para e-mail e CalDAV (RFC
+ * 4791/6578, via tsdav + ical.js para o ICS) para calendario, com
+ * usuario/senha (senha de app, nunca a senha principal da conta).
  */
 
 export interface ImapCaldavConfig {
@@ -53,13 +72,20 @@ export const imapCaldavCapabilities: ConnectorCapabilities = {
   pollIntervalSeconds: 900,
 };
 
+const APPLE_DOMAINS = ['icloud.com', 'me.com', 'mac.com'];
+
+/** Usado tambem para decidir o provider (APPLE vs IMAP_CALDAV) ao conectar. */
+export function isAppleDomain(domain: string): boolean {
+  return APPLE_DOMAINS.includes(domain.trim().toLowerCase());
+}
+
 /**
  * Autodiscovery por convencao, antes de pedir os dados ao usuario.
  * A ordem importa: preset conhecido primeiro, convencao depois.
  */
 export function guessConfigForDomain(domain: string): ImapCaldavConfig {
   const normalized = domain.trim().toLowerCase();
-  if (['icloud.com', 'me.com', 'mac.com'].includes(normalized)) {
+  if (isAppleDomain(normalized)) {
     return { ...APPLE_PRESET };
   }
   return {
@@ -78,34 +104,120 @@ export function domainFromEmail(email: string): string {
   return email.slice(at + 1).toLowerCase();
 }
 
-function naoImplementado(recurso: string): never {
-  throw new ConnectorError(
-    'PERMANENT',
-    `Sync de ${recurso} via IMAP/CalDAV entra na fase 2 do roadmap (docs/06-roadmap.md)`,
-  );
+function imapConfigDe(ctx: ConnectorContext): ImapConnectionConfig {
+  const config = ctx.config as unknown as ImapCaldavConfig;
+  if (!ctx.credentials.username || !ctx.credentials.password) {
+    throw new ConnectorError('AUTH_EXPIRED', 'Conexao sem usuario/senha; reconecte a conta');
+  }
+  return {
+    host: config.imapHost,
+    port: config.imapPort,
+    secure: config.imapSecure,
+    username: ctx.credentials.username,
+    password: ctx.credentials.password,
+  };
+}
+
+function caldavConfigDe(ctx: ConnectorContext): CaldavConnectionConfig {
+  const config = ctx.config as unknown as ImapCaldavConfig;
+  if (!ctx.credentials.username || !ctx.credentials.password) {
+    throw new ConnectorError('AUTH_EXPIRED', 'Conexao sem usuario/senha; reconecte a conta');
+  }
+  return {
+    serverUrl: config.caldavUrl,
+    username: ctx.credentials.username,
+    password: ctx.credentials.password,
+  };
+}
+
+function janelaPadrao(): { since: Date; until: Date } {
+  const mesesPassado = Number(process.env.SYNC_CALENDAR_PAST_MONTHS ?? 1);
+  const mesesFuturo = Number(process.env.SYNC_CALENDAR_FUTURE_MONTHS ?? 12);
+
+  const since = new Date();
+  since.setMonth(since.getMonth() - mesesPassado);
+  const until = new Date();
+  until.setMonth(until.getMonth() + mesesFuturo);
+
+  return { since, until };
 }
 
 export const imapCaldavConnector: Connector = {
   provider: 'IMAP_CALDAV',
   capabilities: imapCaldavCapabilities,
 
-  async verify(_ctx: ConnectorContext) {
-    return naoImplementado('verificacao');
+  async verify(ctx) {
+    // As duas pernas do conector (mail: true, calendar: true) precisam
+    // funcionar: um provedor so-IMAP sem CalDAV nao e suportado nesta fase.
+    // Ver limitacao documentada em docs/06-roadmap.md.
+    await verifyImapConnection(imapConfigDe(ctx));
+    await verifyCaldavConnection(caldavConfigDe(ctx));
+    return { accountEmail: ctx.accountEmail };
   },
-  async listMailboxes(_ctx: ConnectorContext): Promise<RawMailbox[]> {
-    return naoImplementado('pastas');
+
+  async listMailboxes(ctx): Promise<RawMailbox[]> {
+    return listImapMailboxes(imapConfigDe(ctx));
   },
-  async listCalendars(_ctx: ConnectorContext): Promise<RawCalendar[]> {
-    return naoImplementado('calendarios');
+
+  async listCalendars(ctx): Promise<RawCalendar[]> {
+    return listCaldavCalendars(caldavConfigDe(ctx));
   },
-  async fetchMessages(_ctx: ConnectorContext, _o: FetchOptions): Promise<Page<RawMessage>> {
-    return naoImplementado('mensagens');
+
+  async fetchMessages(ctx, _options: FetchOptions): Promise<Page<RawMessage>> {
+    const cursorAnterior = parseContainerCursor(_options.cursor);
+    const config = imapConfigDe(ctx);
+
+    const pastas = await listImapMailboxes(config);
+    // So sincroniza a caixa de entrada por padrao (mesma politica do
+    // Microsoft para pastas nao-padrao): o usuario ainda nao tem como
+    // escolher outras pastas pela UI. Ver gap documentado no roadmap.
+    const alvo = pastas.filter((pasta) => pasta.role === 'INBOX' || cursorAnterior[pasta.providerId]);
+
+    const itens: RawMessage[] = [];
+    const removidos: string[] = [];
+    const tokens: Record<string, string> = {};
+
+    for (const pasta of alvo) {
+      const resultado = await fetchImapMessages(config, pasta.providerId, cursorAnterior[pasta.providerId]);
+      itens.push(...resultado.items);
+      removidos.push(...resultado.deletedProviderIds);
+      tokens[pasta.providerId] = encodeImapCursor(resultado.cursor);
+    }
+
+    return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
   },
-  async fetchEvents(_ctx: ConnectorContext, _o: FetchOptions): Promise<Page<RawEvent>> {
-    return naoImplementado('eventos');
+
+  async fetchEvents(ctx, options): Promise<Page<RawEvent>> {
+    const cursorAnterior = parseContainerCursor(options.cursor);
+    const config = caldavConfigDe(ctx);
+    const janela = options.window ?? janelaPadrao();
+
+    const calendarios = await listCaldavCalendars(config);
+
+    const itens: RawEvent[] = [];
+    const removidos: string[] = [];
+    const tokens: Record<string, string> = {};
+
+    for (const calendario of calendarios) {
+      const resultado = await fetchCaldavEvents(
+        config,
+        calendario.providerId,
+        cursorAnterior[calendario.providerId],
+        janela,
+        ctx.accountEmail,
+      );
+      itens.push(...resultado.items);
+      removidos.push(...resultado.deletedProviderIds);
+      if (resultado.syncToken) tokens[calendario.providerId] = resultado.syncToken;
+    }
+
+    return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
   },
-  async fetchMessageBody(_ctx: ConnectorContext, _id: string) {
-    return naoImplementado('corpo de mensagem');
+
+  async fetchMessageBody(ctx, providerId) {
+    // O providerId de mensagem carrega so o UID; precisamos redescobrir a
+    // pasta. Como so sincronizamos INBOX por padrao, comecamos por ali.
+    return fetchImapMessageBody(imapConfigDe(ctx), 'INBOX', providerId);
   },
 };
 

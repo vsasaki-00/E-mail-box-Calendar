@@ -8,7 +8,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 
 ---
 
-## O que existe hoje (Fase 2 em andamento)
+## O que existe hoje (Fase 2 — conectores completos)
 
 | | Estado |
 |---|---|
@@ -28,20 +28,21 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **Sync real do Outlook Calendar** (`calendarView/delta`, fuso normalizado p/ UTC) | ✅ `src/lib/connectors/microsoft.ts` |
 | Persistência idempotente + reconciliação de itens unificados | ✅ `src/core/sync/persist.ts` |
 | Página de conexões (conectar, sincronizar, desconectar) | ✅ `src/app/conexoes/` |
-| **Sync real com Apple iCloud / IMAP genérico** | ⛔ resto da fase 2 |
+| **Sync real com Apple iCloud / IMAP genérico** | 🔶 implementado, mas não validado contra servidor real (ver `docs/03-conectores.md`) |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
-Os conectores que ainda faltam (Apple iCloud, IMAP genérico) declaram
-capacidades reais e traduzem erros de verdade, mas os métodos de busca
-**falham de forma explícita** em vez de devolver listas vazias — ausência de
-implementação não deve se disfarçar de "caixa sem mensagens".
+Os quatro conectores estão implementados. Google e Microsoft tiveram o fluxo
+OAuth validado contra os servidores reais de cada provedor. O conector
+IMAP/CalDAV (Apple iCloud e genérico) **não pôde ser validado contra um
+servidor real** — a rede do ambiente de desenvolvimento bloqueia IMAP e hosts
+CalDAV; veja a ressalva honesta em `docs/03-conectores.md` antes de confiar
+uma caixa principal a ele.
 
-O fluxo OAuth do Google e do Microsoft foram validados ponta a ponta contra
-os servidores reais de cada provedor (veja `docs/06-roadmap.md`). Para
-conectar uma conta de verdade, falta apenas criar as credenciais no
-[Google Cloud Console](https://console.cloud.google.com) e/ou no
-[Microsoft Entra](https://entra.microsoft.com) e colocá-las no `.env` — veja
-abaixo.
+Para conectar uma conta Google ou Microsoft de verdade, falta apenas criar as
+credenciais no [Google Cloud Console](https://console.cloud.google.com) e/ou
+no [Microsoft Entra](https://entra.microsoft.com) e colocá-las no `.env` —
+veja abaixo. O IMAP/CalDAV não precisa de credencial de app nenhuma, só da
+senha de app da própria conta.
 
 Roadmap completo por fases: [`docs/06-roadmap.md`](docs/06-roadmap.md).
 
@@ -113,10 +114,35 @@ Diferente do Google, não existe modo de teste separado nem lista de test
 users — qualquer conta consegue autorizar assim que o app registration
 existe, inclusive sua própria conta pessoal.
 
+### Conectando uma conta Apple iCloud ou IMAP/CalDAV genérica
+
+Não há OAuth aqui — nem app registration, nem `.env`. Só a conta.
+
+1. Gere uma **senha específica de app** (nunca a senha principal):
+   - **iCloud**: appleid.apple.com → Segurança → Senhas específicas de app
+     (exige 2FA ativo na conta).
+   - **Outros provedores**: procure por "app password" nas configurações de
+     segurança da conta.
+2. Rode `pnpm dev`, abra `http://localhost:3000/conexoes` e clique em
+   **Conectar Apple iCloud / IMAP+CalDAV**.
+3. Informe e-mail + senha de app. Host IMAP e URL do CalDAV são detectados
+   pelo domínio (`icloud.com`/`me.com`/`mac.com` usam o preset da Apple;
+   outros domínios tentam `imap.<domínio>` e `/.well-known/caldav`). Se o
+   provedor usar outro endereço, abra "configurar host/porta manualmente".
+
+O formulário **testa a conexão ao vivo** antes de gravar qualquer coisa — as
+duas pernas (IMAP e CalDAV) precisam responder. Um erro aqui aparece na hora,
+com a mensagem real do servidor.
+
+> ⚠️ Este conector foi escrito e testado em unidade, mas **nunca completou um
+> login contra um servidor real** — a rede do ambiente de desenvolvimento
+> bloqueia IMAP e hosts CalDAV. Teste com uma conta descartável antes de
+> confiar uma caixa principal a ele. Ver `docs/03-conectores.md`.
+
 ### Outros comandos
 
 ```bash
-pnpm test        # 105 testes de núcleo, sem banco
+pnpm test        # 130 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

@@ -54,7 +54,7 @@ Cloud Console e colocá-las no `.env`.
 
 ---
 
-## Fase 2 — Multi-conta e multi-provedor 🔶 (em andamento — Microsoft entregue)
+## Fase 2 — Multi-conta e multi-provedor ✅ (conectores entregues)
 
 - ✅ **OAuth Microsoft** (PKCE, `state` com TTL compartilhado com o Google via
   `OAuthState`, refresh proativo). Tenant `common`: mesma conexão atende
@@ -76,10 +76,28 @@ Cloud Console e colocá-las no `.env`.
   agora, pasta de e-mail) não precisou ser reimplementado.
 - ✅ Deduplicação ativa entre contas (`Message-ID`, `iCalUID`) — já era
   provider-agnóstica desde a fase 1, funciona sem alteração para Microsoft.
-- ⛔ Conector IMAP/CalDAV genérico + preset Apple iCloud — pendente.
+- ✅ **Conector IMAP/CalDAV genérico + preset Apple iCloud**: IMAP (via
+  `imapflow`) para e-mail com incremental por CONDSTORE/MODSEQ quando o
+  servidor suporta e `UIDVALIDITY` como detector de cursor expirado; CalDAV
+  (via `tsdav`) para calendário com REPORT `sync-collection` (RFC 6578) e
+  expansão de recorrência por `ical.js` quando o servidor não expande.
+  Conexão por formulário com teste ao vivo (`POST /api/connections/imap`),
+  sem OAuth. **Não validado contra servidor real** — ver ressalva abaixo.
 - ⛔ Seletor de quais pastas/calendários entram na visão unificada — hoje o
   padrão (`Mailbox.includeInUnified`) é fixo por papel (`INBOX` = sim, resto
-  = não); falta a UI para o usuário alternar.
+  = não); falta a UI para o usuário alternar. O IMAP herda o mesmo gap: só
+  sincroniza `INBOX` por padrão.
+
+**Ressalva importante sobre IMAP/CalDAV**: a rede deste ambiente de
+desenvolvimento bloqueia TCP bruto (porta 993) e libera HTTPS só para um
+allowlist (Google, Microsoft, registries). Diferente do Google e do Microsoft
+— cujos fluxos OAuth foram exercitados contra os servidores reais — **este
+conector nunca completou um login real**. O que foi verificado: erro de DNS
+(`ENOTFOUND` → `PERMANENT`), timeout de rede real de 90s (`CONNECT_TIMEOUT` →
+`TRANSIENT`, sem travar o processo), e 25 testes de lógica pura contra o
+`ical.js` real (RRULE, EXDATE, RECURRENCE-ID). Detalhes em
+`docs/03-conectores.md`. Recomendação: testar com uma conta descartável antes
+de confiar uma caixa principal a ele.
 
 **Critério de aceite**: todas as suas caixas e calendários em uma única tela,
 com o mesmo convite aparecendo uma vez só.

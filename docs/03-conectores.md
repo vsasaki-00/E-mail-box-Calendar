@@ -86,27 +86,97 @@ exige o usuário remover o acesso em `myaccount.microsoft.com/consent`.
 O cliente HTTP do conector respeita `Retry-After` com backoff exponencial —
 ignorar isso derruba a conexão inteira por horas.
 
-## Apple iCloud
+## Apple iCloud e IMAP/CalDAV genérico ✅ implementado (fase 2)
 
-Não há OAuth público para iCloud Mail/Calendar. O caminho suportado é:
+Não há OAuth público para iCloud Mail/Calendar, e a maioria dos provedores
+genéricos (Fastmail, Zoho, domínio corporativo, servidor próprio) também não
+oferece. O caminho é:
 
-- **Senha específica de app** gerada em appleid.apple.com (exige 2FA ativo).
-- **E-mail**: IMAP em `imap.mail.me.com:993` (TLS).
-- **Calendário**: CalDAV em `caldav.icloud.com`, com descoberta via
-  `PROPFIND` → `calendar-home-set` → lista de calendários.
+- **Senha específica de app** — no iCloud, gerada em appleid.apple.com
+  (exige 2FA ativo); nunca a senha principal da conta.
+- **E-mail**: IMAP (RFC 3501), via [`imapflow`](https://imapflow.com).
+- **Calendário**: CalDAV (RFC 4791 + `sync-collection` do RFC 6578), via
+  [`tsdav`](https://github.com/natelindev/tsdav) para o protocolo WebDAV e
+  [`ical.js`](https://github.com/kewisch/ical.js) para parsing de ICS e
+  expansão de recorrência.
 
-Do ponto de vista do núcleo, iCloud é apenas uma configuração pré-preenchida do
-conector IMAP/CalDAV genérico — mesma implementação, defaults diferentes.
+Do ponto de vista do núcleo, iCloud é apenas o conector IMAP/CalDAV genérico
+com defaults pré-preenchidos (`APPLE_PRESET` em `imap-caldav.ts`) — mesma
+implementação, configuração diferente. **Autodiscovery** por convenção
+(`imap.<domínio>`, `https://<domínio>/.well-known/caldav`) roda antes de
+pedir host/porta manualmente ao usuário — `guessConfigForDomain()`.
 
-## IMAP/CalDAV genérico
+**Sem OAuth, sem redirect**: a conexão é criada por um formulário
+(`/conexoes` → "Conectar Apple iCloud / IMAP+CalDAV") que testa a conta ao
+vivo (`POST /api/connections/imap`) antes de gravar qualquer coisa — as duas
+pernas (IMAP e CalDAV) precisam responder.
 
-Cobre Fastmail, Zoho, domínios corporativos, servidores próprios. Precisa de
-host/porta/usuário/senha para cada protocolo. Faz **autodiscovery** por
-convenção (`imap.<domínio>`, registro SRV `_caldavs._tcp`, `/.well-known/caldav`)
-e cai para entrada manual.
+### E-mail: por que so a caixa de entrada por padrão
 
-Sem push confiável: o agendador usa polling e, quando o servidor anuncia
-`IDLE`, mantém uma conexão ociosa para reduzir latência.
+Diferente do Gmail (uma consulta cobre a caixa inteira) e do Graph (delta por
+pasta, mas com nomes de pasta bem-conhecidos e estáveis por locale), IMAP não
+tem um conceito de "todas as pastas" nem um catálogo universal de nomes
+especiais confiável em todo servidor. Por isso o conector sincroniza só
+`INBOX` por padrão. `imapflow` já resolve o papel especial de cada pasta —
+inclusive por nome localizado (`specialUseSource: 'name'`) quando o servidor
+não anuncia a extensão `SPECIAL-USE` — mas a seleção de quais pastas extras
+entram no sync ainda depende de uma UI que não existe (mesmo gap documentado
+no roadmap para o Microsoft).
+
+**Incremental**: `CONDSTORE` (`changedSince` por MODSEQ) quando o servidor
+suporta — pega mensagem nova e mudança de flag numa consulta só, igual em
+espírito ao `historyId`/`deltaLink`. Sem CONDSTORE, cai para "UID maior que o
+último visto" (não detecta flag mudada nem exclusão em mensagem antiga —
+limitação aceita, documentada aqui em vez de escondida). `UIDVALIDITY`
+diferente do armazenado é cursor expirado: o servidor reindexou a pasta.
+
+### Calendário: expansão de recorrência
+
+`fetchCalendarObjects` do tsdav pede expansão no servidor
+(`expand: true`, suportado pelo iCloud); quando o servidor recusa o filtro,
+o conector cai para expansão local via `ical.js` (`ical-normalize.ts`).
+Escopo assumido: RRULE + EXDATE + substituição de ocorrência via
+RECURRENCE-ID (o caso comum — "arrastei uma reunião de segunda para terça").
+`RANGE=THISANDFUTURE` (editar uma ocorrência em diante) não é tratado.
+
+**Incremental**: REPORT `sync-collection` (RFC 6578) chamado diretamente
+via `client.syncCollection` do tsdav, não via `smartCollectionSyncDetailed`
+— cujo caminho "básico" (ctag, para servidor sem `sync-collection`) exige
+anexar funções como propriedade no objeto do calendário, um modelo com
+estado que não combina com este conector: aqui tudo é reconstruído do cursor
+persistido a cada execução. `410 Gone` é cursor expirado, por RFC.
+
+### O que este conector NÃO pôde ser verificado contra um servidor real
+
+A rede deste ambiente de desenvolvimento bloqueia conexão TCP bruta em
+qualquer porta (inclusive 993) e libera HTTPS só para um allowlist restrito
+(Google, Microsoft, registries de pacote) — `caldav.icloud.com` e qualquer
+outro host CalDAV/IMAP genérico ficam de fora. Diferente do Google e do
+Microsoft (cujo OAuth foi validado contra os servidores reais na mesma
+sessão), **este conector não pôde completar um login real contra iCloud,
+Fastmail ou qualquer outro servidor** aqui.
+
+O que foi verificado nesta sessão, honestamente:
+- `POST /api/connections/imap` contra um domínio inexistente devolveu
+  `ENOTFOUND` mapeado corretamente para `PERMANENT` (HTTP 400).
+- Contra um host real mas inalcançável pela rede deste ambiente
+  (`imap.gmail.com:993`, TCP bloqueado), o `connectionTimeout` de 90s do
+  imapflow disparou de verdade e foi mapeado para `TRANSIENT` (HTTP 502) —
+  sem travar o processo, que continuou respondendo a outras requisições
+  durante os 90s de espera.
+- Toda a lógica pura (parsing de ICS, expansão de RRULE com `ical.js` real —
+  não mockado —, EXDATE, substituição via RECURRENCE-ID, tradução de flag
+  IMAP, codec de cursor) tem 130 testes automatizados passando.
+- Os contratos de API do `imapflow` e do `tsdav` foram lidos diretamente do
+  código-fonte instalado (`node_modules/imapflow/lib/imap-flow.d.ts`,
+  `node_modules/tsdav/dist/**`), não de memória — as docs online dessas
+  bibliotecas também estão fora do allowlist de rede.
+
+Isso significa que um erro de integração real (um campo de resposta do
+servidor com formato inesperado, um comportamento de servidor que diverge da
+RFC) só vai aparecer no primeiro uso real, com uma conta de verdade. Vale
+testar com uma conta descartável antes de confiar o sync de uma caixa
+principal a este conector.
 
 ## Tratamento de erro padronizado
 
