@@ -1,7 +1,7 @@
 # 07 — Agente de Triagem, Painel Financeiro e Resposta Assistida
 
-Documento de reflexão sobre a fase 5. **Nada aqui está implementado ainda** —
-é o pensamento antes do código, para decidirmos juntos.
+Documento de reflexão sobre a fase 5, seguido do estado do que já foi
+construído. As decisões tomadas com o usuário estão registradas no fim.
 
 ---
 
@@ -301,3 +301,99 @@ Esboço, para dimensionar a mudança:
 3. **Quais são os negócios** — para modelar os perfis, preciso saber quantas
    caixas, o que é cada uma, e qual seu papel em cada uma.
 4. **Auto-envio** — confirma que é sempre com aprovação, sem exceção?
+
+
+---
+
+# Decisões tomadas
+
+| Questão | Decisão |
+|---|---|
+| Por onde começar | **5A (triagem) + 5C (perfil de voz)**, juntas |
+| Cobranças | **Contas a pagar**: fornecedores com faturas, boletos, cobranças de assinatura. Não recebíveis. |
+| Privacidade | **Metadados na triagem, corpo só sob demanda** |
+| Auto-envio | **Decidir depois da 5D.** Até lá, sempre com aprovação |
+| Calibragem | **Ajustável por caixa** (`MailboxProfile.calibration`) |
+
+---
+
+# Estado da implementação (5A + 5C)
+
+## O que está construído e testado
+
+**Modelo de dados** (`prisma/schema.prisma`): `MailboxProfile` (o negócio de
+cada caixa, calibragem, VIPs), `VoiceProfile`, `ItemTriage`,
+`TriageFeedback`.
+
+**Pré-filtro determinístico** (`src/core/triage/prefilter.ts`) — decide sem
+gastar chamada de API. Precedência garantida por teste: VIP vence tudo;
+envio em massa vira `PROMOTIONAL` e nunca `SPAM`; cobrança com
+`List-Unsubscribe` ou de remetente `no-reply` **passa para o modelo** em vez
+de ser descartada (senão o painel financeiro perderia faturas de assinatura).
+
+**Classificador** (`src/core/triage/classifier.ts`) — `claude-opus-5` com
+saída estruturada validada por Zod, prompt de sistema em cache, lotes de 25.
+Toda a orquestração é testada com um modelo falso: falha de API devolve
+**todos** os itens com confiança 0 para revisão manual (nada some da caixa),
+falha de um lote não derruba os outros, item que o modelo esqueceu de
+devolver não se perde.
+
+**Prompt** (`src/core/triage/prompt.ts`) — construído em função pura e
+verificado por teste, incluindo um teste que protege a decisão de
+privacidade: só remetente, assunto e trecho de 200 caracteres entram.
+
+**Avaliação contra o histórico** (`src/core/triage/evaluate.ts`) — o gabarito
+é derivado do comportamento (respondeu = precisava resposta; arquivou sem
+abrir = descartável; pasta de spam = spam), e é **conservador**: quando o
+sinal é ambíguo devolve `null` em vez de chutar, porque gabarito ruim produz
+métrica bonita e falsa. `meetsAcceptanceCriteria` tem duas barreiras, e a
+segunda não negocia: **qualquer** item escondido que o usuário respondeu
+reprova, por mais alta que seja a acurácia global.
+
+**Perfil de voz** (`src/core/voice/extract.ts`) — separa o texto autoral do
+citado (marcadores do Gmail e Outlook, pt e en), descarta encaminhamentos e
+respostas curtas (senão o perfil aprende que você escreve "ok"), e detecta
+assinatura **por repetição** entre mensagens, não por regra de separador.
+
+**Torre de Controle** — o card deixou de ser "não lidos" e passou a ser
+"precisam de resposta", com cobranças em card próprio.
+
+## Correção feita no caminho
+
+O conector IMAP/CalDAV só sincronizava `INBOX` — contas Apple/IMAP ficariam
+**sem perfil de voz**, já que ele vem da pasta Enviados. Corrigido:
+`SENT` entra no sync. Ela alimenta o perfil sem poluir a caixa unificada,
+porque `includeInUnified` continua verdadeiro só para `INBOX`.
+
+## O que NÃO foi verificado
+
+**A chamada real ao modelo nunca foi exercitada.** Não há
+`ANTHROPIC_API_KEY` neste ambiente (a API responde 401). O que foi
+verificado de fato:
+
+- 222 testes automatizados, sendo 92 novos desta fase.
+- Toda a orquestração da triagem, com um modelo falso — incluindo os modos
+  de falha que importam.
+- A rota `POST /api/triage/run` falha de forma limpa e explicativa sem a
+  chave.
+- A Torre renderizando com dados de triagem reais no banco: mostra
+  "2 precisam de resposta, 1 urgente, 1 com baixa confiança".
+- Sem triagem executada, o painel mostra "—" e "triagem ainda não
+  executada" em vez de "0 precisam de resposta" — a mentira mais fácil
+  deste painel.
+
+**O que só aparece com chave real**: a qualidade da classificação. Nenhum
+teste aqui mede se o modelo acerta — só que o sistema em volta dele se
+comporta. É exatamente para isso que existe o `evaluate.ts`: rodar contra o
+histórico real antes de confiar.
+
+## Próximos passos
+
+1. Configurar `ANTHROPIC_API_KEY` e rodar a triagem numa caixa real.
+2. Rodar a avaliação contra o histórico e publicar o número.
+3. UI de correção da triagem (alimenta `TriageFeedback`).
+4. Tela do `MailboxProfile` — hoje o perfil de cada negócio só existe no
+   banco, sem forma de editar. **É o gap mais relevante**: sem ele a
+   calibragem por caixa que você escolheu não tem como ser configurada.
+5. Job que deriva o `VoiceProfile` da pasta Enviados e o mostra para você
+   validar.

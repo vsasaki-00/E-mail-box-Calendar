@@ -41,17 +41,58 @@ function Painel({ dados }: { dados: ControlTowerData }) {
     <>
       <div className="grid">
         <section className="card">
-          <h2>Backlog de triagem</h2>
-          <div className="metric">{dados.backlog.totalUnread}</div>
-          <div className="metric-label">
-            nao lidos em {dados.connections.length}{' '}
-            {dados.connections.length === 1 ? 'conta' : 'contas'}
-          </div>
-          {dados.backlog.oldestUnreadHours !== null && (
+          <h2>Precisam de resposta</h2>
+          {dados.triage.needsReply === 0 && dados.triage.pending > 0 ? (
+            <>
+              {/* Nao dizer "0 precisam de resposta" quando ninguem analisou
+                  ainda — seria a mentira mais facil deste painel. */}
+              <div className="metric">—</div>
+              <div className="metric-label">triagem ainda não executada</div>
+            </>
+          ) : (
+            <>
+              <div
+                className="metric"
+                style={{ color: dados.triage.urgent > 0 ? 'var(--crit)' : undefined }}
+              >
+                {dados.triage.needsReply}
+              </div>
+              <div className="metric-label">
+                {dados.triage.urgent > 0
+                  ? `${dados.triage.urgent} urgente${dados.triage.urgent > 1 ? 's' : ''}`
+                  : `de ${dados.backlog.totalUnread} não lidos`}
+              </div>
+            </>
+          )}
+          {dados.triage.pending > 0 && (
             <p className="sub" style={{ marginTop: 10 }}>
-              O mais antigo espera ha <strong>{dados.backlog.oldestUnreadHours}h</strong>.
+              {dados.triage.pending} ainda sem triagem.
             </p>
           )}
+          {dados.triage.lowConfidence > 0 && (
+            <p className="sub" style={{ marginTop: 4 }}>
+              {dados.triage.lowConfidence} com baixa confiança — revise.
+            </p>
+          )}
+          {dados.backlog.oldestUnreadHours !== null && (
+            <p className="sub" style={{ marginTop: 4 }}>
+              O não lido mais antigo espera há <strong>{dados.backlog.oldestUnreadHours}h</strong>.
+            </p>
+          )}
+        </section>
+
+        <section className="card">
+          <h2>Cobranças a pagar</h2>
+          <div className="metric">{dados.triage.cobrancas}</div>
+          <div className="metric-label">
+            {dados.triage.cobrancas === 0
+              ? 'nenhuma detectada'
+              : 'faturas, boletos e assinaturas'}
+          </div>
+          <p className="sub" style={{ marginTop: 10 }}>
+            Detecção automática a partir dos e-mails — <strong>não é garantia</strong> de que
+            todas as cobranças foram encontradas.
+          </p>
         </section>
 
         <section className="card">

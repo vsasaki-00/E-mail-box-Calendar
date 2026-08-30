@@ -86,23 +86,25 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  connections   Connection[]
-  unifiedItems  UnifiedItem[]
-  rules         Rule[]
-  alerts        Alert[]
+  connections    Connection[]
+  unifiedItems   UnifiedItem[]
+  rules          Rule[]
+  alerts         Alert[]
+  triages        ItemTriage[]
+  triageFeedback TriageFeedback[]
 }
 
 /// Uma conta conectada: uma caixa de e-mail e/ou um conjunto de calendarios
 /// de um provedor. E a entidade central do sistema.
 model Connection {
-  id          String   @id @default(cuid())
-  userId      String
-  provider    Provider
+  id           String   @id @default(cuid())
+  userId       String
+  provider     Provider
   /// Endereco principal da conta, usado como rotulo na UI.
   accountEmail String
-  displayName String?
+  displayName  String?
   /// Cor usada para identificar esta conta na agenda unificada.
-  color       String   @default("#6366f1")
+  color        String   @default("#6366f1")
 
   /// O que esta conexao sabe fazer. Preenchido pelo conector; o nucleo le
   /// daqui em vez de ramificar por provedor. Ver docs/03-conectores.md
@@ -135,6 +137,8 @@ model Connection {
   events          CalendarEvent[]
   syncStates      SyncState[]
   syncRuns        SyncRun[]
+  mailboxProfile  MailboxProfile?
+  voiceProfile    VoiceProfile?
 
   @@unique([userId, provider, accountEmail])
   @@index([userId, status])
@@ -146,16 +150,16 @@ model Connection {
 
 /// Pasta ou label de e-mail dentro de uma conexao.
 model Mailbox {
-  id           String  @id @default(cuid())
-  connectionId String
-  providerId   String
-  name         String
+  id               String  @id @default(cuid())
+  connectionId     String
+  providerId       String
+  name             String
   /// INBOX, SENT, ARCHIVE, SPAM, TRASH, CUSTOM
-  role         String  @default("CUSTOM")
+  role             String  @default("CUSTOM")
   /// Se entra na Inbox Unificada. O usuario escolhe.
   includeInUnified Boolean @default(false)
-  unreadCount  Int     @default(0)
-  totalCount   Int     @default(0)
+  unreadCount      Int     @default(0)
+  totalCount       Int     @default(0)
 
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   messages   Message[]
@@ -165,14 +169,14 @@ model Mailbox {
 
 /// Um calendario dentro de uma conexao.
 model CalendarSource {
-  id           String  @id @default(cuid())
-  connectionId String
-  providerId   String
-  name         String
-  timezone     String?
-  color        String?
-  isPrimary    Boolean @default(false)
-  isReadOnly   Boolean @default(true)
+  id               String  @id @default(cuid())
+  connectionId     String
+  providerId       String
+  name             String
+  timezone         String?
+  color            String?
+  isPrimary        Boolean @default(false)
+  isReadOnly       Boolean @default(true)
   /// Se entra na Agenda Unificada. Calendarios de feriados normalmente ficam fora.
   includeInUnified Boolean @default(true)
 
@@ -189,31 +193,31 @@ model CalendarSource {
 /// Uma copia fisica de um e-mail, em uma conexao. O mesmo e-mail recebido em
 /// tres caixas gera tres Message e um unico UnifiedItem.
 model Message {
-  id           String  @id @default(cuid())
-  connectionId String
-  mailboxId    String?
-  providerId   String
+  id               String  @id @default(cuid())
+  connectionId     String
+  mailboxId        String?
+  providerId       String
   providerThreadId String?
 
   /// Cabecalho Message-ID (RFC 5322). Chave primaria de deduplicacao.
   rfcMessageId String?
 
-  subject     String?
-  snippet     String?
-  fromName    String?
-  fromEmail   String?
-  toEmails    Json    @default("[]")
-  ccEmails    Json    @default("[]")
-  receivedAt  DateTime
-  isRead      Boolean @default(false)
-  isFlagged   Boolean @default(false)
-  hasAttachments Boolean @default(false)
-  labels      Json    @default("[]")
+  subject        String?
+  snippet        String?
+  fromName       String?
+  fromEmail      String?
+  toEmails       Json     @default("[]")
+  ccEmails       Json     @default("[]")
+  receivedAt     DateTime
+  isRead         Boolean  @default(false)
+  isFlagged      Boolean  @default(false)
+  hasAttachments Boolean  @default(false)
+  labels         Json     @default("[]")
 
   /// Corpo e carregado sob demanda: sincronizar 90 dias de corpo de 6 caixas
   /// e caro em banco e em quota do provedor.
-  bodyText     String?
-  bodyHtml     String?
+  bodyText      String?
+  bodyHtml      String?
   bodyFetchedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -233,7 +237,7 @@ model Message {
 /// Um evento em um calendario de uma conexao. Recorrencias sao armazenadas
 /// expandidas dentro da janela sincronizada (uma linha por ocorrencia).
 model CalendarEvent {
-  id               String  @id @default(cuid())
+  id               String @id @default(cuid())
   connectionId     String
   calendarSourceId String
   providerId       String
@@ -243,18 +247,18 @@ model CalendarEvent {
   /// Id da serie, quando esta linha e uma ocorrencia de evento recorrente.
   recurringEventId String?
 
-  title       String?
-  description String?
-  location    String?
-  startsAt    DateTime
-  endsAt      DateTime
-  isAllDay    Boolean  @default(false)
-  timezone    String?
-  status      EventStatus    @default(CONFIRMED)
+  title          String?
+  description    String?
+  location       String?
+  startsAt       DateTime
+  endsAt         DateTime
+  isAllDay       Boolean        @default(false)
+  timezone       String?
+  status         EventStatus    @default(CONFIRMED)
   responseStatus ResponseStatus @default(NEEDS_ACTION)
   organizerEmail String?
-  attendees   Json     @default("[]")
-  conferenceUrl String?
+  attendees      Json           @default("[]")
+  conferenceUrl  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -273,16 +277,16 @@ model CalendarEvent {
 /// Agrupador de deduplicacao. Aponta para 1..N copias do mesmo item logico.
 /// A Inbox e a Agenda unificadas leem desta tabela.
 model UnifiedItem {
-  id        String      @id @default(cuid())
-  userId    String
-  kind      UnifiedKind
+  id         String      @id @default(cuid())
+  userId     String
+  kind       UnifiedKind
   /// Chave canonica: Message-ID, iCalUID ou hash de fallback. Ver ADR-4.
-  dedupeKey String
+  dedupeKey  String
   /// Campos desnormalizados da copia representativa, para listar sem join.
-  title     String?
-  preview   String?
+  title      String?
+  preview    String?
   occurredAt DateTime
-  copyCount Int         @default(1)
+  copyCount  Int         @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -290,6 +294,7 @@ model UnifiedItem {
   user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages Message[]
   events   CalendarEvent[]
+  triage   ItemTriage?
 
   @@unique([userId, dedupeKey])
   @@index([userId, kind, occurredAt])
@@ -315,18 +320,18 @@ model OAuthState {
 /// Cursor por (conexao, recurso). Permite retomar sync e detectar cursor
 /// expirado (historyId do Gmail, deltaLink do Graph, ctag do CalDAV...).
 model SyncState {
-  id           String       @id @default(cuid())
-  connectionId String
-  resource     SyncResource
-  cursor       String?
+  id             String       @id @default(cuid())
+  connectionId   String
+  resource       SyncResource
+  cursor         String?
   /// Token da pagina em andamento, quando o full sync foi interrompido no meio.
-  pageToken    String?
-  status       SyncStatus   @default(IDLE)
+  pageToken      String?
+  status         SyncStatus   @default(IDLE)
   lastFullSyncAt DateTime?
-  lastSyncAt   DateTime?
-  nextRunAt    DateTime?
+  lastSyncAt     DateTime?
+  nextRunAt      DateTime?
   /// Numero de falhas consecutivas, usado para backoff exponencial.
-  failureCount Int          @default(0)
+  failureCount   Int          @default(0)
 
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
@@ -336,15 +341,15 @@ model SyncState {
 
 /// Historico de execucoes de sync. Alimenta o painel de saude.
 model SyncRun {
-  id           String         @id @default(cuid())
+  id           String          @id @default(cuid())
   connectionId String
   resource     SyncResource
-  startedAt    DateTime       @default(now())
+  startedAt    DateTime        @default(now())
   finishedAt   DateTime?
   outcome      SyncRunOutcome?
-  itemsCreated Int            @default(0)
-  itemsUpdated Int            @default(0)
-  itemsDeleted Int            @default(0)
+  itemsCreated Int             @default(0)
+  itemsUpdated Int             @default(0)
+  itemsDeleted Int             @default(0)
   errorMessage String?
 
   connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
@@ -378,15 +383,15 @@ model Rule {
 /// O que a Torre de Controle precisa gritar. O dedupeKey evita que o mesmo
 /// conflito vire dezenas de alertas ao longo do dia.
 model Alert {
-  id        String        @id @default(cuid())
-  userId    String
-  severity  AlertSeverity @default(WARN)
+  id             String        @id @default(cuid())
+  userId         String
+  severity       AlertSeverity @default(WARN)
   /// CONNECTION_DOWN, SYNC_STALE, CALENDAR_CONFLICT, SLA_BREACH, REAUTH_NEEDED
-  kind      String
-  title     String
-  detail    String?
-  dedupeKey String
-  context   Json     @default("{}")
+  kind           String
+  title          String
+  detail         String?
+  dedupeKey      String
+  context        Json          @default("{}")
   acknowledgedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -396,4 +401,172 @@ model Alert {
 
   @@unique([userId, dedupeKey])
   @@index([userId, acknowledgedAt, severity])
+}
+
+// ---------------------------------------------------------------------------
+// Fase 5 — Triagem, perfil de voz e painel financeiro
+// A racional completa esta em docs/07-agente-de-triagem.md
+// ---------------------------------------------------------------------------
+
+enum TriageCategory {
+  /// Fornecedor cobrando: boleto, fatura, assinatura, nota fiscal.
+  /// Contas A PAGAR — alimenta o painel financeiro.
+  COBRANCA
+  /// Alguem esperando resposta sua.
+  NEEDS_REPLY
+  /// Relevante mas nao exige acao (confirmacao, recibo, relatorio).
+  INFORMATIVE
+  /// Marketing, newsletter, lista de distribuicao.
+  PROMOTIONAL
+  /// Spam de verdade.
+  SPAM
+  /// Sem valor, candidato a arquivar. NUNCA excluido automaticamente.
+  DISPOSABLE
+}
+
+enum TriagePriority {
+  URGENT
+  HIGH
+  NORMAL
+  LOW
+}
+
+/// De onde veio a classificacao. Guardar isso permite medir o quanto a regra
+/// deterministica cobre sozinha, e nunca sobrescrever uma decisao do usuario.
+enum TriageSource {
+  /// Regra deterministica (cabecalho, remetente conhecido). Sem custo de API.
+  RULE
+  /// Modelo de linguagem, a partir de metadados.
+  MODEL
+  /// Correcao explicita do usuario. Tem precedencia sobre tudo.
+  USER
+}
+
+/// Quanto a triagem pode ser agressiva ao rebaixar/esconder itens.
+/// O usuario escolhe POR CAIXA: agressivo na pessoal cheia de newsletter,
+/// conservador na do negocio principal.
+enum TriageCalibration {
+  /// Na duvida, o item aparece. Falso positivo de spam esconde o primeiro
+  /// e-mail de um cliente novo — dano invisivel e assimetrico.
+  CONSERVATIVE
+  BALANCED
+  /// Filtra mais. So faz sentido se o usuario revisar os descartados.
+  AGGRESSIVE
+}
+
+/// O que esta caixa E: qual negocio, qual o papel do usuario nele, o que
+/// conta como urgente AQUI. E o que torna "negocios diferentes" um conceito
+/// de primeira classe em vez de um ajuste global.
+model MailboxProfile {
+  id           String @id @default(cuid())
+  connectionId String @unique
+
+  /// Nome do negocio/contexto desta caixa ("Consultoria X", "Pessoal").
+  businessName String?
+  /// Papel do usuario neste contexto ("socio", "diretor comercial").
+  role         String?
+  /// O que o usuario quer desta caixa, em texto livre. Entra no prompt.
+  objective    String?
+
+  calibration TriageCalibration @default(BALANCED)
+
+  /// Remetentes/dominios sempre tratados como alta prioridade e nunca
+  /// rebaixados. Lista de strings.
+  vipSenders     Json @default("[]")
+  /// Palavras que elevam a prioridade nesta caixa especificamente.
+  urgentKeywords Json @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+/// Como o usuario escreve NESTA caixa. Derivado da pasta Enviados, nao
+/// declarado em formulario — ver docs/07-agente-de-triagem.md.
+model VoiceProfile {
+  id           String @id @default(cuid())
+  connectionId String @unique
+
+  /// Saudacoes e despedidas mais frequentes, com contagem.
+  greetings Json    @default("[]")
+  closings  Json    @default("[]")
+  /// Bloco de assinatura detectado (repetido no fim das mensagens).
+  signature String?
+
+  /// Estatisticas observadas, para calibrar tamanho e registro do rascunho.
+  avgWordCount    Int     @default(0)
+  medianWordCount Int     @default(0)
+  formality       String? // "formal" | "neutro" | "informal"
+  language        String? // "pt-BR", "en", ...
+
+  /// Padroes em texto livre observados nas amostras (entra no prompt).
+  traits Json @default("[]")
+
+  /// Quantas mensagens autorais alimentaram este perfil, e quando.
+  sampleCount Int      @default(0)
+  derivedAt   DateTime @default(now())
+
+  /// O perfil so e usado para gerar rascunho depois que o usuario confirma
+  /// que "e assim que eu escrevo". Ate la, e so uma proposta.
+  userApproved Boolean @default(false)
+  userNotes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+}
+
+/// Resultado da triagem de um item unificado.
+model ItemTriage {
+  id            String @id @default(cuid())
+  unifiedItemId String @unique
+  userId        String
+
+  category   TriageCategory
+  priority   TriagePriority
+  needsReply Boolean        @default(false)
+  /// 0..1. Baixa confianca aparece na UI e nunca some da lista.
+  confidence Float          @default(0)
+  /// Por que foi classificado assim, em uma frase. E o que permite o
+  /// usuario discordar de forma informada em vez de so ver um rotulo.
+  reason     String?
+  source     TriageSource
+
+  /// Rastreabilidade: reclassificar tudo depois de mudar o prompt exige
+  /// saber o que foi classificado com qual versao.
+  model         String?
+  promptVersion String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unifiedItem UnifiedItem      @relation(fields: [unifiedItemId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedback    TriageFeedback[]
+
+  @@index([userId, category, priority])
+  @@index([userId, needsReply])
+}
+
+/// Correcao do usuario. A informacao mais valiosa do sistema: sem isso o
+/// agente nao melhora e o usuario desiste dele em tres semanas.
+model TriageFeedback {
+  id           String @id @default(cuid())
+  itemTriageId String
+  userId       String
+
+  fromCategory TriageCategory?
+  toCategory   TriageCategory?
+  fromPriority TriagePriority?
+  toPriority   TriagePriority?
+  note         String?
+
+  createdAt DateTime @default(now())
+
+  itemTriage ItemTriage @relation(fields: [itemTriageId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

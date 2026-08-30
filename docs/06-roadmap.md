@@ -151,7 +151,7 @@ com escopos de escrita.
 
 ---
 
-## Fase 5 — Triagem, painel financeiro e resposta assistida
+## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A+5C em andamento)
 
 Reflexão completa, com as armadilhas e o raciocínio por trás do
 faseamento: [`07-agente-de-triagem.md`](07-agente-de-triagem.md).
@@ -162,17 +162,23 @@ classificar (rotulagem, reversível), extrair (estruturado, verificável) e
 escrever (geração, irreversível se enviar). Por isso a fase está quebrada em
 sub-fases de risco crescente, cada uma utilizável sozinha:
 
-- **5A — Triagem**: classifica categoria, prioridade e "precisa resposta?"
+- **5A — Triagem** 🔶: classifica categoria, prioridade e "precisa resposta?"
   usando **só metadados** (sem enviar corpo de e-mail para lugar nenhum).
-  Nenhuma ação tomada. Acurácia medida contra o próprio histórico do usuário
-  antes de ser confiada.
+  Nenhuma ação tomada. Pré-filtro determinístico, classificador com saída
+  estruturada, avaliação contra histórico e card na Torre de Controle estão
+  implementados e testados (92 testes novos). **A chamada real ao modelo
+  nunca foi exercitada** — não há API key neste ambiente. Falta a UI de
+  correção e a tela do `MailboxProfile`.
 - **5B — Painel financeiro**: extração estruturada das cobranças
   (valor, vencimento, beneficiário, linha digitável). Melhor relação
   valor/risco do projeto: verificável contra o e-mail original, nada
   irreversível.
-- **5C — Perfil de voz por caixa**: derivado da pasta Enviados de cada conta,
-  não de formulário. Cada negócio tem sua voz, e a prova está gravada. Não
-  gera nada ainda — só monta o perfil para o usuário validar.
+- **5C — Perfil de voz por caixa** 🔶: derivado da pasta Enviados de cada
+  conta, não de formulário. A extração está implementada e testada (36
+  testes): separa texto autoral do citado, descarta encaminhamentos e
+  respostas curtas, detecta assinatura por repetição. O conector IMAP foi
+  corrigido para sincronizar `SENT` — sem isso contas Apple/IMAP ficariam
+  sem perfil. Falta o job que persiste e a UI de validação.
 - **5D — Rascunhos com aprovação**: gera resposta com o perfil da caixa
   certa. **Nunca envia.** Cada edição do usuário vira sinal de melhoria.
 - **5E — Ações em lote e envio**: só depois que a 5D tiver ganho confiança.

@@ -168,10 +168,13 @@ export const imapCaldavConnector: Connector = {
     const config = imapConfigDe(ctx);
 
     const pastas = await listImapMailboxes(config);
-    // So sincroniza a caixa de entrada por padrao (mesma politica do
-    // Microsoft para pastas nao-padrao): o usuario ainda nao tem como
-    // escolher outras pastas pela UI. Ver gap documentado no roadmap.
-    const alvo = pastas.filter((pasta) => pasta.role === 'INBOX' || cursorAnterior[pasta.providerId]);
+    // INBOX pela triagem; SENT porque o perfil de voz da fase 5C e derivado
+    // da pasta Enviados (docs/07-agente-de-triagem.md) — sem ela, contas
+    // IMAP/Apple ficariam sem perfil. Lixeira e spam continuam fora.
+    // Pastas extras so entram se ja tinham cursor de execucao anterior.
+    const alvo = pastas.filter(
+      (pasta) => pasta.role === 'INBOX' || pasta.role === 'SENT' || cursorAnterior[pasta.providerId],
+    );
 
     const itens: RawMessage[] = [];
     const removidos: string[] = [];

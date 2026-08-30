@@ -34,6 +34,23 @@ export interface TriageBacklog {
   byConnection: { connectionId: string; label: string; unread: number }[];
 }
 
+/**
+ * Resumo da triagem da fase 5A. Ver docs/07-agente-de-triagem.md
+ *
+ * O ponto do produto: a Torre deixa de dizer "47 nao lidos" e passa a dizer
+ * "3 precisam de resposta hoje". `pending` existe porque um numero de
+ * triagem so e honesto se disser quanto ainda NAO foi analisado.
+ */
+export interface TriageSummary {
+  needsReply: number;
+  urgent: number;
+  cobrancas: number;
+  /** Classificados com confianca baixa: aparecem para revisao humana. */
+  lowConfidence: number;
+  /** Itens ainda sem nenhuma triagem. Sem isso, o painel mentiria. */
+  pending: number;
+}
+
 /** Um compromisso do dia ja colapsado: uma linha por reuniao, nao por copia. */
 export interface TimelineEntry {
   id: string;
@@ -55,6 +72,7 @@ export interface ControlTowerData {
   conflicts: Conflict[];
   focusWindows: { start: Date; end: Date; minutes: number }[];
   backlog: TriageBacklog;
+  triage: TriageSummary;
   alerts: {
     id: string;
     severity: string;
@@ -136,7 +154,18 @@ export function dayBounds(reference = new Date()): { start: Date; end: Date } {
 export async function loadControlTower(userId: string, now = new Date()): Promise<ControlTowerData> {
   const { start: dayStart, end: dayEnd } = dayBounds(now);
 
-  const [connections, events, unreadAggregates, oldestUnread, alerts] = await Promise.all([
+  const [
+    connections,
+    events,
+    unreadAggregates,
+    oldestUnread,
+    alerts,
+    triageByCategory,
+    needsReplyCount,
+    urgentCount,
+    lowConfidenceCount,
+    pendingTriageCount,
+  ] = await Promise.all([
     prisma.connection.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
@@ -166,6 +195,16 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
       orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
       take: 20,
     }),
+    prisma.itemTriage.groupBy({
+      by: ['category'],
+      where: { userId },
+      _count: { _all: true },
+    }),
+    prisma.itemTriage.count({ where: { userId, needsReply: true } }),
+    prisma.itemTriage.count({ where: { userId, priority: 'URGENT' } }),
+    // Confianca baixa nunca some da lista: e o item que precisa de olho.
+    prisma.itemTriage.count({ where: { userId, confidence: { lt: 0.6 } } }),
+    prisma.unifiedItem.count({ where: { userId, kind: 'MESSAGE', triage: null } }),
   ]);
 
   const unreadByConnection = new Map(
@@ -245,6 +284,14 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
         label: connection.displayName ?? connection.accountEmail,
         unread: connection.unreadCount,
       })),
+    },
+    triage: {
+      needsReply: needsReplyCount,
+      urgent: urgentCount,
+      cobrancas:
+        triageByCategory.find((linha) => linha.category === 'COBRANCA')?._count._all ?? 0,
+      lowConfidence: lowConfidenceCount,
+      pending: pendingTriageCount,
     },
     alerts: alerts.map((alert) => ({
       id: alert.id,

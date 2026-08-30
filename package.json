@@ -23,6 +23,7 @@
     "seed": "tsx --env-file-if-exists=.env prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
     "@prisma/client": "^6.3.0",
     "ical.js": "^2.2.1",
     "imapflow": "^1.7.6",
