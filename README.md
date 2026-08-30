@@ -45,6 +45,8 @@ veja abaixo. O IMAP/CalDAV não precisa de credencial de app nenhuma, só da
 senha de app da própria conta.
 
 Roadmap completo por fases: [`docs/06-roadmap.md`](docs/06-roadmap.md).
+Reflexão sobre a fase de IA (triagem, painel financeiro, resposta assistida):
+[`docs/07-agente-de-triagem.md`](docs/07-agente-de-triagem.md).
 
 ---
 

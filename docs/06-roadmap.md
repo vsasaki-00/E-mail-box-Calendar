@@ -151,14 +151,41 @@ com escopos de escrita.
 
 ---
 
-## Fase 5 — Automação e inteligência
+## Fase 5 — Triagem, painel financeiro e resposta assistida
 
-- Motor de regras: condição + ação sobre `UnifiedItem`.
-- Extração de compromisso a partir de e-mail (voo, hotel, boleto, entrega)
-  com proposta de evento — sempre com confirmação, nunca criação silenciosa.
-- Sugestão de horário considerando **todos** os calendários simultaneamente.
-- Bloqueio automático de janelas de foco.
-- Resumo diário/semanal.
+Reflexão completa, com as armadilhas e o raciocínio por trás do
+faseamento: [`07-agente-de-triagem.md`](07-agente-de-triagem.md).
+
+O pedido ("separar prioridades, identificar cobranças, responder como eu")
+são **três problemas diferentes** com perfis de risco distintos —
+classificar (rotulagem, reversível), extrair (estruturado, verificável) e
+escrever (geração, irreversível se enviar). Por isso a fase está quebrada em
+sub-fases de risco crescente, cada uma utilizável sozinha:
+
+- **5A — Triagem**: classifica categoria, prioridade e "precisa resposta?"
+  usando **só metadados** (sem enviar corpo de e-mail para lugar nenhum).
+  Nenhuma ação tomada. Acurácia medida contra o próprio histórico do usuário
+  antes de ser confiada.
+- **5B — Painel financeiro**: extração estruturada das cobranças
+  (valor, vencimento, beneficiário, linha digitável). Melhor relação
+  valor/risco do projeto: verificável contra o e-mail original, nada
+  irreversível.
+- **5C — Perfil de voz por caixa**: derivado da pasta Enviados de cada conta,
+  não de formulário. Cada negócio tem sua voz, e a prova está gravada. Não
+  gera nada ainda — só monta o perfil para o usuário validar.
+- **5D — Rascunhos com aprovação**: gera resposta com o perfil da caixa
+  certa. **Nunca envia.** Cada edição do usuário vira sinal de melhoria.
+- **5E — Ações em lote e envio**: só depois que a 5D tiver ganho confiança.
+
+Princípios inegociáveis desta fase:
+- O agente **nunca apaga** — sugere arquivar (reversível); exclusão fica
+  manual no provedor.
+- Spam é classificado de forma **conservadora**: falso positivo esconde o
+  primeiro e-mail de um cliente novo, dano assimétrico.
+- O painel financeiro sempre declara que é detecção automática, **não
+  garantia de completude**.
+- Envio **sempre com aprovação**. O modo de falha mais provável com múltiplos
+  negócios não é "texto ruim", é "tom do negócio A no e-mail do negócio B".
 
 ---
 
