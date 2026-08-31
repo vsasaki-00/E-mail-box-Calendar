@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { agendarSyncImediato, runSync } from '@/core/sync/engine';
+import { getConnector } from '@/lib/connectors/registry';
 
 /**
  * Forca um sync agora, sem esperar o worker.
@@ -28,12 +29,53 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   const inicio = Date.now();
 
+  const conexao = await prisma.connection.findUnique({ where: { id } });
+  if (!conexao) {
+    return NextResponse.json({ error: 'Conexão não encontrada' }, { status: 404 });
+  }
+
+  // Credencial ausente e um estado REAL: acontece quando o callback do OAuth
+  // morre entre criar a Connection e gravar o segredo. A conta fica na tela
+  // parecendo saudavel e nunca sincroniza. Dizer isso em voz alta e melhor
+  // que devolver sucesso vazio.
+  if (!conexao.secretCiphertext) {
+    return NextResponse.json(
+      { error: 'Conexão sem credenciais — desconecte e conecte a conta de novo.' },
+      { status: 409 },
+    );
+  }
+
+  // Auto-reparo: garante um SyncState por recurso que o conector suporta.
+  // Sem isto, uma conexao que perdeu esta etapa fica orfa para sempre — a
+  // consulta abaixo volta vazia e o sync "termina" sem ter feito nada.
+  const capacidades = getConnector(conexao.provider).capabilities;
+  const suportados = [
+    ...(capacidades.mail ? (['MAIL'] as const) : []),
+    ...(capacidades.calendar ? (['CALENDAR'] as const) : []),
+  ];
+  for (const resource of suportados) {
+    await prisma.syncState.upsert({
+      where: { connectionId_resource: { connectionId: id, resource } },
+      create: { connectionId: id, resource, nextRunAt: new Date() },
+      update: {},
+    });
+  }
+
   await agendarSyncImediato(id);
 
   const estados = await prisma.syncState.findMany({
     where: { connectionId: id, resource: { in: ['MAIL', 'CALENDAR'] } },
     include: { connection: true },
   });
+
+  // Cinto e suspensorio: se ainda assim nao ha o que rodar, isso e um erro
+  // a mostrar, nunca um sucesso de zero itens.
+  if (estados.length === 0) {
+    return NextResponse.json(
+      { error: 'Conexão sem recursos de sincronização. Desconecte e conecte de novo.' },
+      { status: 409 },
+    );
+  }
 
   const resultados: ResumoRecurso[] = [];
 

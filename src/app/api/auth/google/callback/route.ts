@@ -92,7 +92,24 @@ export async function GET(request: Request) {
     update: { status: 'ACTIVE', lastErrorMessage: null, lastErrorAt: null },
   });
 
-  await saveCredentials(conexao.id, credenciais, keyringFromEnv());
+  // A partir daqui a Connection JA EXISTE na tela do usuario. Se algo
+  // falhar sem tratamento, ela fica parecendo saudavel e nunca sincroniza —
+  // foi exatamente o que aconteceu em producao quando a MASTER_ENCRYPTION_KEY
+  // estava ausente. Falha aqui precisa MARCAR a conexao, nao virar 500 mudo.
+  try {
+    await saveCredentials(conexao.id, credenciais, keyringFromEnv());
+  } catch (error) {
+    const mensagem = error instanceof Error ? error.message : String(error);
+    await prisma.connection.update({
+      where: { id: conexao.id },
+      data: {
+        status: 'REAUTH_REQUIRED',
+        lastErrorAt: new Date(),
+        lastErrorMessage: `Falha ao guardar credenciais: ${mensagem}`,
+      },
+    });
+    return paginaDeErro('Falha ao guardar as credenciais', mensagem);
+  }
 
   // Escrita (fase 4): decide pelo que o provedor CONCEDEU, nao pelo que
   // pedimos. O usuario pode desmarcar permissoes na tela de consentimento e
