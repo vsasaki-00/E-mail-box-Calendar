@@ -181,8 +181,14 @@ function linhasUteis(autoral: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-/** Uma linha isolada e uma despedida reconhecida? */
-function isClosingLine(linha: string): boolean {
+/**
+ * Uma linha isolada e uma despedida reconhecida?
+ *
+ * Exportada porque a composicao do rascunho (fase 5D) precisa da MESMA
+ * nocao de despedida usada para derivar o perfil — duas listas separadas
+ * divergiriam, e o rascunho sairia com "Abraço," duplicado.
+ */
+export function isClosingLine(linha: string): boolean {
   // A despedida e curta por natureza; uma frase nao e despedida.
   if (countWords(linha) > 5) return false;
   const normalizada = linha.toLowerCase().replace(/[,!.:;]+$/, '');

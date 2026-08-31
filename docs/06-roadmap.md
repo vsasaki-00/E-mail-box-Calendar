@@ -151,7 +151,7 @@ com escopos de escrita.
 
 ---
 
-## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A+5B+5C entregues)
+## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A a 5D entregues)
 
 Reflexão completa, com as armadilhas e o raciocínio por trás do
 faseamento: [`07-agente-de-triagem.md`](07-agente-de-triagem.md).
@@ -193,8 +193,16 @@ sub-fases de risco crescente, cada uma utilizável sozinha:
   é local. O perfil é uma proposta até você confirmar "é assim que eu
   escrevo"; rederivar reseta essa validação. Falta rodar contra uma caixa
   real e grande — o corpus de verificação é sintético.
-- **5D — Rascunhos com aprovação**: gera resposta com o perfil da caixa
-  certa. **Nunca envia.** Cada edição do usuário vira sinal de melhoria.
+- **5D — Rascunhos com aprovação** ✅: gera resposta com o perfil de voz
+  validado da caixa certa. Tela `/rascunhos`. **Nunca envia** — e não é
+  envio desligado por flag: não há dependência SMTP, não há chamada de
+  envio nos conectores, o enum `DraftStatus` não tem estado "enviado", e os
+  escopos OAuth continuam somente-leitura. Dois testes guardam isso. O
+  modelo escreve só o miolo; saudação, despedida e assinatura são compostas
+  localmente a partir do perfil, então a assinatura sai exata. Só gera com
+  perfil de voz que você validou — é o que faz a 5C valer alguma coisa.
+  35 testes. NÃO verificado: a qualidade do texto, porque não há API key
+  neste ambiente.
 - **5E — Ações em lote e envio**: só depois que a 5D tiver ganho confiança.
 
 Princípios inegociáveis desta fase:

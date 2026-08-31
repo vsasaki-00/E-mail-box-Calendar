@@ -92,6 +92,7 @@ model User {
   alerts         Alert[]
   triages        ItemTriage[]
   bills          BillExtraction[]
+  drafts         Draft[]
   triageFeedback TriageFeedback[]
 }
 
@@ -297,6 +298,7 @@ model UnifiedItem {
   events   CalendarEvent[]
   triage   ItemTriage?
   bill     BillExtraction?
+  draft    Draft?
 
   @@unique([userId, dedupeKey])
   @@index([userId, kind, occurredAt])
@@ -442,6 +444,20 @@ enum TriageSource {
   MODEL
   /// Correcao explicita do usuario. Tem precedencia sobre tudo.
   USER
+}
+
+/// Estado do rascunho. NAO EXISTE estado "enviado": a fase 5D nao envia,
+/// e a ausencia do estado e proposital — um enum com SENT convidaria a
+/// primeira pessoa apressada (eu inclusive) a ligar o envio.
+enum DraftStatus {
+  /// Gerado, esperando voce olhar.
+  PROPOSED
+  /// Voce editou. O texto editado e o sinal mais valioso desta fase.
+  EDITED
+  /// Voce aprovou o texto. Aprovar NAO envia — copia para voce enviar.
+  APPROVED
+  /// Voce descartou. Tambem e sinal.
+  DISCARDED
 }
 
 /// Que tipo de cobranca e. Ver docs/07-agente-de-triagem.md (fase 5B).
@@ -637,6 +653,50 @@ model BillExtraction {
 
   @@index([userId, status, dueDate])
   @@index([userId, isPayable])
+}
+
+/// Rascunho de resposta gerado com o perfil de voz da caixa (fase 5D).
+///
+/// Ver docs/07-agente-de-triagem.md. Tres coisas que este modelo carrega de
+/// proposito:
+///  - `bodyGenerated` e `bodyEdited` separados, para medir o quanto voce
+///    muda — sem isso nao da para saber se o rascunho esta melhorando;
+///  - `voiceProfileApproved`, congelado no momento da geracao: um rascunho
+///    so pode ser gerado com perfil que voce validou, e o registro prova
+///    qual perfil foi usado;
+///  - nenhum campo de envio. A fase 5D nao envia.
+model Draft {
+  id            String @id @default(cuid())
+  unifiedItemId String @unique
+  userId        String
+
+  /// Assunto sugerido (normalmente "Re: ...").
+  subject       String?
+  /// O corpo como o modelo devolveu, sem saudacao/despedida/assinatura —
+  /// essas sao compostas localmente a partir do perfil de voz.
+  bodyGenerated String
+  /// O texto final montado (saudacao + corpo + despedida + assinatura).
+  bodyComposed  String
+  /// O que voce deixou depois de editar. Null enquanto nao editou.
+  bodyEdited    String?
+
+  status DraftStatus @default(PROPOSED)
+
+  /// Perfil de voz usado, e a prova de que ele estava validado por voce.
+  voiceProfileDerivedAt DateTime?
+  /// Por que o modelo respondeu assim, em uma frase.
+  reason                String?
+
+  model         String?
+  promptVersion String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  unifiedItem UnifiedItem @relation(fields: [unifiedItemId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
 }
 
 /// Correcao do usuario. A informacao mais valiosa do sistema: sem isso o

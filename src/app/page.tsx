@@ -269,6 +269,9 @@ export default async function TorreDeControle() {
           {dados && (
             <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
           )}
+          <a href="/rascunhos" className="sub" style={{ marginRight: 14 }}>
+            rascunhos →
+          </a>
           <a href="/financeiro" className="sub" style={{ marginRight: 14 }}>
             financeiro →
           </a>

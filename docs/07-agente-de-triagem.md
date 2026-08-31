@@ -652,3 +652,132 @@ e status intactos).
   um modelo falso, incluindo falha de API e item ausente na resposta.
 - **Cobrança em anexo PDF.** Não é lida. É a lacuna mais provável de te
   morder, e por isso está declarada na própria tela.
+
+---
+
+# Rascunhos com aprovação (`/rascunhos`) ✅ — fase 5D
+
+## A regra desta fase
+
+**Nada aqui envia e-mail.** Não é um envio desligado por configuração — é a
+**ausência da capacidade**. Não há dependência de SMTP no projeto, não há
+chamada de envio nos conectores, e o enum `DraftStatus` **não tem estado
+"enviado"**: a ausência é proposital, porque um enum com `SENT` convidaria a
+primeira pessoa apressada (eu inclusive) a ligar o envio.
+
+Há uma segunda barreira, independente do código: os **escopos OAuth
+continuam somente-leitura** (`gmail.readonly`, `Mail.Read`). Mesmo que
+alguém escrevesse um envio, o token não teria permissão. Dois testes
+guardam isso — um falha se aparecer qualquer função com nome de envio nos
+módulos de rascunho, outro falha se um escopo de escrita entrar na lista.
+
+"Está bom, vou usar" registra que você aprovou o texto. Copiar e mandar é
+você, do seu cliente de e-mail.
+
+## A decisão de projeto: o modelo escreve só o miolo
+
+Mesma lógica da 5B — o que pode ser determinístico, é. O modelo recebe
+instrução explícita de **não escrever saudação, despedida nem assinatura**.
+Essas três são compostas localmente, a partir do perfil que você validou:
+
+```
+{sua saudação, com o nome de quem escreveu}
+
+{miolo escrito pelo modelo}
+
+{sua despedida}
+{sua assinatura, exata}
+```
+
+Por que isso importa:
+
+- A **assinatura sai caractere por caractere** do seu perfil, não uma
+  paráfrase que o modelo achou parecida com a sua.
+- A **despedida** é a que você mais usa, contada da sua pasta Enviados.
+- A **saudação** segue a sua forma real: o perfil aprendeu `"Oi Camila,"`, e
+  o sistema troca o nome mantendo a forma → `"Oi Marina,"`. Se a sua forma
+  exige nome (`"Prezado João,"`) e o remetente não tem nome utilizável, ele
+  **não saúda** em vez de escrever `"Prezado,"`.
+- Endereço de sistema não vira nome: `no-reply@`, `financeiro@`, `billing@`
+  devolvem `null`. `"Oi Noreply,"` seria a coisa mais denunciadora possível.
+- E o perfil de voz deixa de ser tempero de prompt e passa a fazer
+  **trabalho mecânico verificável**.
+
+Há uma defesa em profundidade: se o modelo desobedecer e escrever saudação e
+despedida mesmo assim, elas são **removidas antes da composição**. A remoção
+usa exatamente o mesmo `isClosingLine` que derivou o perfil na 5C — duas
+listas separadas divergiriam e a duplicação voltaria. **Verificado em
+execução real com um modelo que desobedece de propósito**: ele devolveu
+`"Oi Marina,\n\n...\n\nAbraço,\nVictor"`, e o texto final saiu com
+exatamente uma saudação, uma despedida, e a assinatura completa
+(`Victor Sasaki\nBrand.co`) no lugar do `"Victor"` que o modelo escreveu.
+
+## A trava que faz a fase 5C valer alguma coisa
+
+**Rascunho só é gerado com perfil de voz que você validou.** Sem essa
+recusa, a 5C teria sido decorativa: a validação é o único sinal de que o
+perfil representa você.
+
+A recusa é um **resultado legítimo**, não um erro, e diz o que fazer:
+
+| Situação | O que a tela diz |
+|---|---|
+| Caixa sem perfil de voz | derive o perfil em `/voz` primeiro |
+| Perfil existe, não validado | valide em `/voz` antes de gerar |
+| Mensagem sem corpo carregado | sincronize a conta primeiro |
+| Sem `ANTHROPIC_API_KEY` | aqui **não há** camada local que substitua |
+
+Essa última linha é uma diferença honesta em relação à 5B: o painel
+financeiro funciona sem chave, porque boleto e PIX são aritmética. Rascunho
+não tem esse substituto, e a tela diz isso em vez de fingir.
+
+## Privacidade
+
+Aqui vai o corpo da mensagem a ser respondida — não há como responder sem
+ler. Continua sendo **corpo sob demanda**, e o escopo é o mais estreito de
+todo o sistema: **um item por vez, quando você clica em "gerar rascunho"
+naquele item**. Nunca em lote pela caixa. A geração em lote seria
+exatamente a porta de entrada para o envio automático, que esta fase não
+tem.
+
+## Sua instrução tem precedência
+
+O campo "o que você quer nesta resposta?" (`recuse educadamente, agenda
+cheia até novembro`) entra no prompt marcado como tendo **precedência**
+sobre o que o modelo concluiria sozinho — você sabe do negócio o que o
+e-mail não diz. E a **sua correção sobre o perfil de voz** (o texto livre
+que você escreveu em `/voz`) entra por último no prompt de sistema, depois
+do perfil derivado, porque foi você quem escreveu olhando para ele.
+
+## Sua edição é o sinal
+
+`bodyGenerated` (o miolo cru) e `bodyEdited` (o que você deixou) ficam
+**guardados separados**. A distância entre os dois é a única medida honesta
+de se o rascunho está ficando bom. O rodapé mostra "N rascunhos gerados, M
+editados por você" — sem capturar isso, você desistiria da ferramenta em
+três semanas sem saber dizer por quê.
+
+Regerar zera a edição anterior: o texto editado era de outro rascunho, e
+mantê-lo faria a tela mostrar uma edição que não bate com o que está ali.
+
+## O que foi verificado
+
+- **35 testes** desta fase, incluindo os dois guardas de "não envia".
+- O prompt levando perfil de voz, negócio, papel e objetivo daquela caixa —
+  e um teste de que o perfil de **outra** caixa não vaza (responder um
+  cliente da Unitedcom com a voz do e-mail pessoal seria o pior erro
+  possível de um sistema multi-negócio).
+- Execução real contra o banco: recusa com perfil não validado, geração com
+  perfil validado, e a composição corrigindo um modelo desobediente.
+- A tela renderizando com o rascunho e os quatro botões.
+
+## O que NÃO foi verificado
+
+- **A qualidade do texto gerado.** Nenhum teste aqui mede se o rascunho soa
+  como você — só que o sistema em volta se comporta. Sem
+  `ANTHROPIC_API_KEY` neste ambiente, o modelo real nunca escreveu uma
+  linha. É a limitação mais importante desta fase, e a única forma de
+  resolvê-la é você ler os primeiros rascunhos de uma caixa real.
+- **Thread completa.** O prompt leva só a última mensagem, não a conversa
+  inteira. Para a maioria das respostas basta; para uma negociação longa,
+  não.
