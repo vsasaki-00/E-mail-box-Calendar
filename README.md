@@ -99,8 +99,16 @@ aplica o esquema e popula os dados de demonstração.
 um `.env` existente** — trocar a `MASTER_ENCRYPTION_KEY` tornaria ilegíveis
 as credenciais já guardadas das suas caixas.
 
-Sem Docker, ele diz exatamente o que fazer: abrir o Docker Desktop, ou
-`brew install postgresql@16 && brew services start postgresql@16`.
+**Sem Docker também funciona**, e é mais leve:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+bash scripts/setup.sh
+```
+
+O script cria sozinho o papel e o banco que o app espera — o mesmo que o
+`docker-compose` já criaria.
 
 Para pular os dados de demonstração: `SEED=0 bash scripts/setup.sh`.
 

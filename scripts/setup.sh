@@ -139,8 +139,88 @@ banco_no_ar() {
   " 2>/dev/null
 }
 
+# Le usuario/senha/banco da DATABASE_URL. Node esta garantido a esta altura,
+# e parsear URL com sed daria errado no primeiro caractere especial da senha.
+credenciais() {
+  node -e "
+    const u = new URL(process.env.URL_DO_ENV);
+    process.stdout.write([
+      decodeURIComponent(u.username),
+      decodeURIComponent(u.password),
+      u.pathname.replace(/^\//, ''),
+    ].join('\n'));
+  " 2>/dev/null
+}
+
+# O Postgres esta no ar E aceita as credenciais que o app usa?
+#
+# Best-effort de proposito: so da para checar quando ha `psql` na maquina.
+# Sem ele (caso tipico do Docker, que ja cria as credenciais certas),
+# assumimos que esta bom — e o `db:push` logo em seguida da a resposta real,
+# com uma mensagem do Prisma que diz exatamente o que houve.
+app_conecta() {
+  command -v psql >/dev/null 2>&1 || return 0
+  # Sem a query string: o Prisma usa `?schema=public`, e o psql recusa esse
+  # parametro ("invalid URI query parameter"). Passar a URL crua faria a
+  # checagem falhar SEMPRE, e o script tentaria recriar um banco que ja
+  # existe a cada execucao.
+  psql "${url_do_env%%\?*}" -c 'SELECT 1' >/dev/null 2>&1
+}
+
+# Cria o papel e o banco que o app espera, num Postgres instalado pelo brew.
+#
+# Existe para o caminho SEM Docker ser tao curto quanto o com: o
+# docker-compose ja cria `torre/torre/torre`, e sem isto o usuario teria de
+# fazer na mao o que a maquina faz sozinha.
+preparar_postgres_local() {
+  command -v psql >/dev/null 2>&1 || return 1
+
+  URL_DO_ENV="$url_do_env"
+  export URL_DO_ENV
+  local dados usuario senha banco
+  dados="$(credenciais)" || return 1
+  usuario="$(printf '%s' "$dados" | sed -n 1p)"
+  senha="$(printf '%s' "$dados" | sed -n 2p)"
+  banco="$(printf '%s' "$dados" | sed -n 3p)"
+
+  amarelo "• criando o papel \"$usuario\" e o banco \"$banco\" no seu Postgres"
+
+  # Quem e superusuario varia com a instalacao: no Postgres do Homebrew e o
+  # seu proprio usuario do macOS; em outras, e `postgres`. Tenta as duas em
+  # vez de assumir uma — assumir seria acertar so em metade das maquinas.
+  local conectou=1
+  for alvo in "-d postgres" "-U postgres -d postgres"; do
+    # shellcheck disable=SC2086
+    if psql $alvo -c 'SELECT 1' >/dev/null 2>&1; then
+      # shellcheck disable=SC2086
+      psql $alvo -v ON_ERROR_STOP=0 >/dev/null 2>&1 <<SQL
+CREATE ROLE "$usuario" WITH LOGIN PASSWORD '$senha' CREATEDB;
+CREATE DATABASE "$banco" OWNER "$usuario";
+SQL
+      conectou=0
+      break
+    fi
+  done
+  [ "$conectou" -eq 0 ] || return 1
+
+  app_conecta
+}
+
 if banco_no_ar; then
   verde "✓ já tem um Postgres respondendo na porta $porta"
+  if ! app_conecta; then
+    amarelo "• mas ele não aceita as credenciais que o app usa"
+    if preparar_postgres_local; then
+      verde "✓ papel e banco criados"
+    else
+      vermelho "✗ não consegui preparar o banco automaticamente"
+      printf '\n  Crie à mão (ajuste os nomes se você mudou a DATABASE_URL):\n\n'
+      printf '    psql -d postgres -c "CREATE ROLE torre WITH LOGIN PASSWORD '"'"'torre'"'"' CREATEDB;"\n'
+      printf '    psql -d postgres -c "CREATE DATABASE torre OWNER torre;"\n\n'
+      printf '  Ou use o Docker Desktop, que já cria tudo: abra-o e rode de novo.\n'
+      exit 1
+    fi
+  fi
 elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   printf '  subindo o Postgres via Docker...\n'
   pnpm db:up
@@ -157,10 +237,13 @@ elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   fi
 else
   vermelho "✗ nenhum Postgres respondendo na porta $porta, e o Docker não está disponível"
-  printf '\n  Duas saídas:\n'
-  printf '  1. abra o Docker Desktop e rode de novo: pnpm setup\n'
-  printf '  2. ou instale o Postgres direto:  brew install postgresql@16 && brew services start postgresql@16\n'
-  printf '     (nesse caso, ajuste DATABASE_URL no .env para o seu usuário)\n'
+  printf '\n  Duas saídas, e a segunda é mais leve:\n\n'
+  printf '  1. abrir o Docker Desktop (open -a Docker) e rodar de novo\n\n'
+  printf '  2. instalar só o Postgres, sem Docker:\n'
+  printf '       brew install postgresql@16\n'
+  printf '       brew services start postgresql@16\n'
+  printf '       bash scripts/setup.sh\n'
+  printf '     (o papel e o banco este script cria sozinho)\n'
   exit 1
 fi
 
