@@ -70,31 +70,58 @@ A senha em si não é gravada em lugar nenhum: guarde-a você.
 
 ---
 
-## 2. Banco de dados
+## 2. Banco de dados — Supabase
 
-Você precisa de um Postgres acessível pela internet. Neon, Supabase e o
-Postgres da própria Vercel servem; todos têm plano gratuito suficiente para
-uma caixa de e-mail pessoal.
+Você precisa de um Postgres acessível pela internet. **A escolha deste
+projeto é o Supabase** (Neon e o Postgres da própria Vercel também
+serviriam). Crie o projeto em supabase.com, região **South America (São
+Paulo)** — o app é usado do Brasil, e cada consulta atravessa essa distância.
 
-**Use a connection string com pool** (a que o provedor chama de *pooled* ou
-*pgbouncer*), não a direta. Cada requisição serverless abre sua própria
-conexão; sem pool, o banco esgota o limite de conexões em poucos minutos de
-uso. Com Prisma e PgBouncer, acrescente à URL:
+Guarde a senha do banco na hora em que ela aparecer: o Supabase não a mostra
+de novo.
+
+### Duas strings diferentes, para dois usos diferentes
+
+Este é o ponto onde é fácil errar. No painel do projeto, botão **Connect**,
+o Supabase mostra três strings. Copie de lá — não digite de memória, o
+formato do host muda entre regiões e gerações de projeto.
+
+| Uso | Qual copiar | Por quê |
+|---|---|---|
+| `DATABASE_URL` na Vercel (runtime) | **Transaction pooler** (porta 6543) | cada requisição serverless abre a própria conexão; sem pool o banco esgota o limite em minutos de uso |
+| `pnpm db:push` da sua máquina (DDL) | **Session pooler** (porta 5432) | o modo transação não sustenta `CREATE TABLE` de forma confiável |
+
+Na string do **transaction pooler**, acrescente os parâmetros que o Prisma
+precisa para conviver com o PgBouncer:
 
 ```
 ?pgbouncer=true&connection_limit=1
 ```
 
-Depois de configurar a `DATABASE_URL` de produção, crie as tabelas a partir
-da sua máquina:
+Prefira o **session pooler** à *direct connection* para o `db push`: em
+projetos novos o Supabase serve a conexão direta só por IPv6, e boa parte
+das operadoras domésticas brasileiras ainda não entrega IPv6 — o sintoma é
+um timeout que parece problema do banco e é da sua rede.
+
+**Se a senha tiver caractere especial** (`@`, `#`, `/`, `:`), ela precisa
+estar *percent-encoded* dentro da URL, senão o parser corta a string no
+lugar errado. O jeito de não pensar nisso é escolher uma senha longa só com
+letras e números.
+
+### Criando as tabelas
 
 ```bash
-DATABASE_URL="<url de produção>" pnpm db:push
+DATABASE_URL="<session pooler, porta 5432>" pnpm db:push
 ```
 
 `db:push`, não `db:migrate`. Este projeto não tem pasta de migrations; o
 `prisma migrate dev` ofereceria **apagar o banco** para criar a primeira
 migration.
+
+### Um efeito colateral bem-vindo
+
+O plano gratuito do Supabase pausa projetos ociosos. O cron de hora em hora
+(item 5) toca o banco com frequência suficiente para isso nunca acontecer.
 
 ---
 
@@ -104,7 +131,7 @@ Em *Settings → Environment Variables*, para o ambiente **Production**:
 
 | Variável | Vem de |
 |---|---|
-| `DATABASE_URL` | a string com pool do item 2 |
+| `DATABASE_URL` | Supabase → **transaction pooler** (6543) + `?pgbouncer=true&connection_limit=1` |
 | `MASTER_ENCRYPTION_KEY` | **copie a do seu `.env` local** — ver abaixo |
 | `MASTER_ENCRYPTION_KEY_ID` | idem (`k1`) |
 | `SESSION_SECRET` | `pnpm gerar:senha` |
@@ -181,13 +208,19 @@ curl -H "x-cron-secret: $CRON_SECRET" https://<seu-domínio>/api/cron/sync
 ## 6. Ordem de execução
 
 1. `pnpm gerar:senha` → guarde as três linhas.
-2. Crie o Postgres hospedado e pegue a string com pool.
-3. `DATABASE_URL="<produção>" pnpm db:push`.
-4. Importe o repositório na Vercel (branch `claude/email-calendar-manager-zsf592`).
-5. Cadastre as variáveis do item 3. **Antes do primeiro deploy** — sem
-   `SESSION_SECRET` e `APP_PASSWORD_HASH` o app responde 503, de propósito.
+2. Crie o projeto no Supabase (região São Paulo) e copie as **duas** strings
+   do botão *Connect*: transaction pooler (6543) e session pooler (5432).
+3. `DATABASE_URL="<session pooler, 5432>" pnpm db:push`.
+4. Importe o repositório na Vercel. Em *Settings → Git → Production Branch*,
+   aponte para `claude/email-calendar-manager-zsf592`.
+5. Cadastre as variáveis do item 3, com a `DATABASE_URL` do **transaction
+   pooler**. **Antes do primeiro deploy** — sem `SESSION_SECRET` e
+   `APP_PASSWORD_HASH` o app responde 503, de propósito.
 6. Deploy. Anote o domínio.
-7. Acrescente as URIs de redirecionamento no Google e na Microsoft (item 4).
+7. Acrescente as URIs de redirecionamento no Google e na Microsoft (item 4),
+   e só então cadastre `GOOGLE_REDIRECT_URI` na Vercel — ela depende do
+   domínio, que só existe depois do item 6. **Redeploy**: variável nova só
+   vale no build seguinte.
 8. Abra a URL, entre com a senha, conecte as contas em `/conexoes`.
 
 ---
