@@ -11,6 +11,13 @@ import { Nav } from '../nav';
 
 export const dynamic = 'force-dynamic';
 
+// Vale tambem para as Server Actions desta pagina ("Sincronizar agora"):
+// sem isto elas herdam o timeout padrao do runtime (~15s), que corta o
+// primeiro sync de uma caixa real no meio e sem feedback. 60s e o teto
+// seguro do Hobby; um corte segue nao sendo fatal — o cursor persiste e o
+// proximo clique retoma de onde parou.
+export const maxDuration = 60;
+
 const PROVIDER_LABEL: Record<string, string> = {
   GOOGLE: 'Google',
   MICROSOFT: 'Microsoft',

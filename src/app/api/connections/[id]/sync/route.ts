@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { agendarSyncImediato, runSync } from '@/core/sync/engine';
 
+// Sem isto a rota fica no timeout padrao do runtime (~10-15s), que nao
+// comporta o primeiro sync de uma caixa com 90 dias de historico. 60s e o
+// teto seguro do plano Hobby da Vercel; o corte continua nao sendo fatal —
+// o pageToken persiste e o proximo clique (ou o cron) retoma do ponto.
+export const maxDuration = 60;
+
 /**
  * Forca um sync agora, sem esperar o worker.
  *
