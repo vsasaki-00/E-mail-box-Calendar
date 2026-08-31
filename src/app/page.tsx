@@ -82,7 +82,9 @@ function Painel({ dados }: { dados: ControlTowerData }) {
         </section>
 
         <section className="card">
-          <h2>Cobranças a pagar</h2>
+          <h2>
+            <a href="/financeiro" style={{ color: 'inherit' }}>Cobranças a pagar</a>
+          </h2>
           <div className="metric">{dados.triage.cobrancas}</div>
           <div className="metric-label">
             {dados.triage.cobrancas === 0
@@ -267,6 +269,9 @@ export default async function TorreDeControle() {
           {dados && (
             <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
           )}
+          <a href="/financeiro" className="sub" style={{ marginRight: 14 }}>
+            financeiro →
+          </a>
           <a href="/triagem" className="sub" style={{ marginRight: 14 }}>
             triagem →
           </a>

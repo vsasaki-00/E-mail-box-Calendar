@@ -33,6 +33,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **Perfis das caixas** (negócio, papel, objetivo, calibragem, VIPs) | ✅ `src/app/perfis/` |
 | **Tela de triagem com correção** (alimenta o aprendizado) | ✅ `src/app/triagem/` |
 | **Perfil de voz por caixa** (derivado da pasta Enviados, processado localmente) | ✅ `src/core/voice/` + `src/app/voz/` |
+| **Painel financeiro** (boleto e PIX lidos localmente, com dígito verificador) | ✅ `src/core/finance/` + `src/app/financeiro/` |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
 Os quatro conectores estão implementados. Google e Microsoft tiveram o fluxo
@@ -148,7 +149,7 @@ com a mensagem real do servidor.
 ### Outros comandos
 
 ```bash
-pnpm test        # 256 testes de núcleo, sem banco
+pnpm test        # 309 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

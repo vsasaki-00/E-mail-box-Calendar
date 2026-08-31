@@ -91,6 +91,7 @@ model User {
   rules          Rule[]
   alerts         Alert[]
   triages        ItemTriage[]
+  bills          BillExtraction[]
   triageFeedback TriageFeedback[]
 }
 
@@ -295,6 +296,7 @@ model UnifiedItem {
   messages Message[]
   events   CalendarEvent[]
   triage   ItemTriage?
+  bill     BillExtraction?
 
   @@unique([userId, dedupeKey])
   @@index([userId, kind, occurredAt])
@@ -442,6 +444,38 @@ enum TriageSource {
   USER
 }
 
+/// Que tipo de cobranca e. Ver docs/07-agente-de-triagem.md (fase 5B).
+enum BillKind {
+  BOLETO
+  PIX
+  FATURA
+  ASSINATURA
+  NOTA_FISCAL
+  OUTRO
+}
+
+/// De onde veio o valor/vencimento. Guardar isso e o que permite a UI
+/// dizer "lido do boleto" x "palpite do modelo" — sao coisas muito
+/// diferentes num painel de contas a pagar.
+enum BillSource {
+  /// Boleto ou PIX: carrega digito verificador, nao depende de modelo.
+  INSTRUMENT
+  /// Rotulo explicito no corpo ("Valor total: R$ ...").
+  TEXT
+  /// Modelo de linguagem. Confianca limitada por construcao.
+  MODEL
+  /// Correcao do usuario. Tem precedencia sobre tudo.
+  USER
+}
+
+/// O agente NUNCA marca como paga. Isso e do usuario, sempre.
+enum BillStatus {
+  PENDING
+  PAID
+  /// Nao era cobranca, ou nao interessa acompanhar.
+  IGNORED
+}
+
 /// Quanto a triagem pode ser agressiva ao rebaixar/esconder itens.
 /// O usuario escolhe POR CAIXA: agressivo na pessoal cheia de newsletter,
 /// conservador na do negocio principal.
@@ -548,6 +582,61 @@ model ItemTriage {
 
   @@index([userId, category, priority])
   @@index([userId, needsReply])
+}
+
+/// Cobranca extraida de um e-mail classificado como COBRANCA na 5A.
+///
+/// Ver docs/07-agente-de-triagem.md. Duas coisas que este modelo precisa
+/// carregar e quase sempre sao esquecidas:
+///  - `source` e `confidence`, para o painel nunca parecer mais certo do
+///    que e;
+///  - `warnings`, porque uma cobranca com problema tem que APARECER com o
+///    problema, e nao sumir.
+model BillExtraction {
+  id            String @id @default(cuid())
+  unifiedItemId String @unique
+  userId        String
+
+  /// Em centavos. Null quando o e-mail nao diz — diferente de zero.
+  amountCents Int?
+  /// Fixo em BRL nesta fase: boleto e PIX so existem em real.
+  currency    String    @default("BRL")
+  dueDate     DateTime?
+  /// Quem esta cobrando.
+  payee       String?
+  kind        BillKind  @default(OUTRO)
+
+  /// Linha digitavel (so digitos) e payload do PIX copia e cola.
+  digitableLine String?
+  pixPayload    String?
+  pixKey        String?
+
+  /// 0..1. Extracao vinda so do modelo tem teto baixo por construcao.
+  confidence Float      @default(0)
+  source     BillSource
+  reason     String?
+  /// Avisos que o usuario PRECISA ver (DV que nao fecha, valor ausente).
+  warnings   Json       @default("[]")
+
+  /// Parece mesmo conta a pagar? Recibo e confirmacao de compra ficam
+  /// separados no painel, nunca escondidos.
+  isPayable Boolean    @default(true)
+  /// Estado dado pelo USUARIO. O agente nunca marca nada como pago.
+  status    BillStatus @default(PENDING)
+  userNotes String?
+
+  model         String?
+  promptVersion String?
+
+  extractedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  unifiedItem UnifiedItem @relation(fields: [unifiedItemId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, dueDate])
+  @@index([userId, isPayable])
 }
 
 /// Correcao do usuario. A informacao mais valiosa do sistema: sem isso o

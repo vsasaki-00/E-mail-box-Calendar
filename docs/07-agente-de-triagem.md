@@ -529,3 +529,126 @@ O corpus acima é sintético, ainda que realista. O primeiro perfil derivado
 de uma conta de verdade é onde a lista de saudações e a detecção de
 assinatura vão ser postas à prova — e é exatamente por isso que a tela pede
 sua validação antes de qualquer rascunho existir.
+
+---
+
+# Painel financeiro (`/financeiro`) ✅ — fase 5B
+
+## A decisão central: o modelo não pode ser a fonte da linha digitável
+
+Um modelo de linguagem que troca um dígito produz **um pagamento para o
+lugar errado**. Do lado do dinheiro isso é irreversível. Então a extração
+tem três camadas com autoridade decrescente, e ela não inverte:
+
+1. **Instrumento de pagamento** — boleto e PIX carregam dígito verificador.
+   Manda.
+2. **Texto rotulado** — "Valor total: R$ ...", "Vencimento: ...".
+3. **Modelo** — só o que sobrou, e com **teto de confiança de 0,5**.
+
+A linha digitável de um boleto de título carrega o **próprio valor e o
+próprio vencimento**. Quando ela está presente, esses dois campos não
+dependem de nenhum modelo acertar — saem de aritmética. O mesmo vale para o
+valor num PIX copia e cola.
+
+## O que é lido localmente, sem nenhuma chamada de API
+
+- **Linha digitável de título (47 dígitos)**: três dígitos verificadores de
+  campo (módulo 10), DV geral (módulo 11), valor, e vencimento a partir do
+  fator.
+- **Linha de arrecadação/convênio (48 dígitos)**: DVs dos quatro blocos, e
+  valor apenas quando o indicador diz que é valor efetivo em real — os
+  indicadores 7 e 9 são "valor referência" (quantidade de moeda), e tratar
+  isso como dinheiro num painel de contas a pagar seria erro grave.
+- **PIX copia e cola (BR Code EMV)**: TLV completo, CRC-16, chave, valor,
+  beneficiário.
+
+**O fator de vencimento estourou em 2025.** O fator chegou a 9999 em
+21/02/2025 e reiniciou em 1000 no dia seguinte. Sem tratar isso, todo boleto
+emitido depois dessa data viraria uma data do fim dos anos 1990, e o painel
+diria "vencida há 27 anos". A leitura calcula os dois candidatos e escolhe o
+mais próximo de hoje.
+
+## A ressalva honesta: o DV geral não pôde ser verificado
+
+Os **três DVs de campo (módulo 10) estão verificados** contra uma linha
+digitável real — os três fecham, o que também prova que o parsing dos campos
+está certo.
+
+O **DV geral (módulo 11) não pôde ser verificado**: a única linha real que
+tenho à mão não fecha esse dígito, e não há rede neste ambiente para buscar
+uma referência. Ele segue a especificação FEBRABAN, mas pode estar errado.
+
+Isso teve uma consequência de projeto que os testes pegaram. A primeira
+versão exigia **todos** os DVs para aceitar valor e vencimento do
+instrumento. Se a minha implementação do módulo 11 estiver errada, isso
+faria **todo boleto real cair calado para o modelo** — e o painel
+continuaria parecendo funcionar. Modo de falha silencioso, o pior tipo.
+
+A versão final entra pelo DV **verificado** (módulo 10) e usa o não
+verificado só para **rebaixar a confiança de 0,95 para 0,75 e emitir um
+aviso**. Erro visível em vez de erro silencioso.
+
+Há uma lacuna real por trás disso, e ela está documentada em teste: o campo
+5 da linha digitável (fator de vencimento + valor) **não tem DV próprio** —
+só o DV geral o cobre. Trocar um dígito do valor passa batido pelos três
+módulo 10. É exatamente por isso que o aviso existe e que a tela manda
+conferir no e-mail original.
+
+## Privacidade: é aqui que o corpo passa a ser lido
+
+Mudança deliberada em relação à triagem, e é exatamente a decisão que você
+tomou ("metadados na triagem, **corpo sob demanda**"). Este é o sob demanda.
+O escopo é estreito, e a garantia começa na consulta ao banco:
+
+- só mensagens que a 5A já classificou como `COBRANCA`;
+- no máximo 4.000 caracteres por e-mail no prompt;
+- e boa parte **nem chega ao modelo**, porque boleto e PIX se resolvem
+  localmente.
+
+Sem `ANTHROPIC_API_KEY` o painel **continua funcionando** com a camada
+local. Um painel que só funciona com chave seria pior do que um painel
+parcial e honesto.
+
+## As mentiras que esta tela se recusa a contar
+
+- O total em aberto **exclui** cobranças sem valor identificado, e diz isso:
+  "1 sem valor identificado — não estão nesse total". Somar zero as
+  esconderia.
+- Uma extração sem valor nem vencimento mostra "nada identificado
+  automaticamente", não "estimado pelo modelo" — não houve palpite nenhum a
+  atribuir.
+- Cada cobrança mostra **de onde veio o número** (lido do boleto / lido do
+  corpo / estimado pelo modelo) e a confiança.
+- Uma linha digitável que não fecha o DV **aparece com o aviso**, nunca é
+  descartada em silêncio. Descartar faria a cobrança sumir do painel, que é
+  o pior modo de falha desta fase.
+- O topo da tela declara que é detecção automática e **não é garantia de
+  completude** — uma cobrança que chegou só como PDF anexo não aparece.
+
+## O agente nunca marca nada como pago
+
+`PENDING` / `PAID` / `IGNORED` é sempre ação sua. E reextrair **não pode
+desfazer** o que você marcou: o `status` fica de fora do update, e uma linha
+com `source: USER` nunca é sobrescrita — mesma regra da triagem, verificada
+em execução real (corrigi para R$ 175,00, marquei como paga, reextraí: valor
+e status intactos).
+
+## O que foi verificado
+
+- **53 testes** só desta fase, sendo os do CRC ancorados no **vetor canônico
+  do CRC-16/CCITT-FALSE** (`CRC("123456789") = 0x29B1`) — sem essa âncora,
+  todo teste de PIX seria circular.
+- Execução real ponta a ponta contra o banco, **sem chave de API**: boleto
+  lido (R$ 150,00, vencimento 24/05/2022, direto da linha), fatura lida do
+  corpo (R$ 209,90, total e não o item de R$ 89,90), e um e-mail sem dado
+  nenhum devolvendo "nada identificado" em vez de inventar.
+- A tela renderizando com os três casos e com o total honesto.
+
+## O que NÃO foi verificado
+
+- **O DV geral (módulo 11)**, pelo motivo acima.
+- **A chamada real ao modelo**, pelo mesmo motivo de sempre: não há
+  `ANTHROPIC_API_KEY` neste ambiente. Toda a orquestração está testada com
+  um modelo falso, incluindo falha de API e item ausente na resposta.
+- **Cobrança em anexo PDF.** Não é lida. É a lacuna mais provável de te
+  morder, e por isso está declarada na própria tela.

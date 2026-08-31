@@ -151,7 +151,7 @@ com escopos de escrita.
 
 ---
 
-## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A+5C entregues)
+## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A+5B+5C entregues)
 
 Reflexão completa, com as armadilhas e o raciocínio por trás do
 faseamento: [`07-agente-de-triagem.md`](07-agente-de-triagem.md).
@@ -172,10 +172,16 @@ sub-fases de risco crescente, cada uma utilizável sozinha:
   modelo nunca foi exercitada** — não há API key neste ambiente, então
   nada aqui mede se a classificação ACERTA, só que o sistema em volta dela
   se comporta.
-- **5B — Painel financeiro**: extração estruturada das cobranças
-  (valor, vencimento, beneficiário, linha digitável). Melhor relação
-  valor/risco do projeto: verificável contra o e-mail original, nada
-  irreversível.
+- **5B — Painel financeiro** ✅: extração estruturada das cobranças (valor,
+  vencimento, beneficiário, tipo, linha digitável, PIX). Tela `/financeiro`.
+  A leitura de boleto (linha digitável de título e de arrecadação, com
+  dígitos verificadores, valor e fator de vencimento) e de PIX copia e cola
+  (BR Code EMV com CRC-16) é **local, sem nenhuma chamada de API** — o
+  modelo entra só no que sobrou, com teto de confiança. Sem
+  `ANTHROPIC_API_KEY` o painel continua funcionando com a camada local.
+  53 testes. Ressalva documentada: o DV geral (módulo 11) não pôde ser
+  verificado contra um boleto real neste ambiente, então ele só rebaixa a
+  confiança e emite aviso — nunca descarta a cobrança.
 - **5C — Perfil de voz por caixa** ✅: derivado da pasta Enviados de cada
   conta, não de formulário. Extração, job de persistência e tela `/voz` de
   validação estão implementados e testados (57 testes): separa texto autoral
