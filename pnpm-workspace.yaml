@@ -1,17 +1,24 @@
 # Autorizacao dos build scripts que o projeto REALMENTE precisa.
 #
-# Sem isto, o pnpm bloqueia o `prisma generate` do postinstall — e o app so
-# quebra bem depois, com um erro que nao aponta para a causa.
+# Sem isto, o pnpm bloqueia o `prisma generate` e o app quebra bem depois,
+# com um erro que nao aponta para a causa.
 #
-# Por que aqui e nao no package.json: o pnpm 11 **parou de ler** o campo
-# `pnpm` do package.json ("The following keys were ignored"). O
-# pnpm-workspace.yaml e o lugar que funciona no 10 e no 11 — verificado nos
-# dois. Nao ha versao do pnpm fixada de proposito: o arquivo resolve o
-# problema em qualquer uma, e fixar so acrescentaria um downgrade a
-# atrapalhar quem ja tem uma versao mais nova funcionando.
+# As DUAS chaves existem porque o pnpm mudou de nome entre versoes, e nao
+# ha uma que sirva para as duas:
+#   - `allowBuilds`            -> pnpm 11 (mapa, com true/false explicito)
+#   - `onlyBuiltDependencies`  -> pnpm 10 e anteriores (lista)
+# O pnpm 11 chegou a reescrever este arquivo sozinho para me dizer isso.
+# Verificado nas duas versoes.
 #
-# A lista e curta de proposito. Cada entrada aqui e um pacote autorizado a
+# A lista e curta de proposito: cada entrada e um pacote autorizado a
 # executar codigo na sua maquina durante a instalacao.
+
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  prisma: true
+  esbuild: true
+
 onlyBuiltDependencies:
   - '@prisma/client'
   - '@prisma/engines'
