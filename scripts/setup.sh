@@ -32,8 +32,8 @@ exigir() {
 }
 
 passo "Conferindo o que já existe na máquina"
+
 exigir node "brew install node"
-exigir pnpm "brew install pnpm  (ou: npm install -g pnpm)"
 
 if command -v node >/dev/null 2>&1; then
   versao_node="$(node -v | sed 's/v//' | cut -d. -f1)"
@@ -44,9 +44,31 @@ if command -v node >/dev/null 2>&1; then
   fi
 fi
 
+# O pnpm e o unico pre-requisito que da para resolver sozinho: o Node ja
+# traz o `corepack`, que sabe instala-lo. Exigir que o usuario resolva algo
+# que a maquina dele consegue resolver e atrito a toa.
+if command -v pnpm >/dev/null 2>&1; then
+  verde "✓ pnpm"
+elif [ "$faltou" -eq 0 ] && command -v corepack >/dev/null 2>&1; then
+  amarelo "• pnpm não encontrado — habilitando pelo corepack (vem com o Node)"
+  if corepack enable pnpm >/dev/null 2>&1 && command -v pnpm >/dev/null 2>&1; then
+    verde "✓ pnpm instalado"
+  else
+    vermelho "✗ não consegui habilitar o pnpm automaticamente"
+    printf '  instale com: brew install pnpm\n'
+    printf '  (ou, se o corepack pediu permissão: sudo corepack enable pnpm)\n'
+    faltou=1
+  fi
+else
+  vermelho "✗ falta: pnpm"
+  printf '  instale com: brew install pnpm\n'
+  faltou=1
+fi
+
 if [ "$faltou" -eq 1 ]; then
   printf '\n'
-  vermelho "Instale o que falta acima e rode de novo: pnpm setup"
+  vermelho "Instale o que falta acima e rode de novo:"
+  printf '  bash scripts/setup.sh\n'
   exit 1
 fi
 

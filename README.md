@@ -66,19 +66,32 @@ Reflexão sobre a fase de IA (triagem, painel financeiro, resposta assistida):
 
 ## Rodando localmente
 
-Pré-requisitos no Mac: `brew install node pnpm` e o Docker Desktop aberto
-(ou um Postgres 16 já rodando).
+Pré-requisito no Mac: **Node 20+** (`brew install node`) e o Docker Desktop
+aberto (ou um Postgres 16 já rodando). O `pnpm` o script instala sozinho.
+
+Sem o Homebrew? Instale-o primeiro — e rode as duas linhas `echo ... >>
+~/.zprofile` que ele imprime no final, senão o `brew` some ao fechar o
+Terminal:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
 
 ```bash
 git clone https://github.com/vsasaki-00/E-mail-box-Calendar
 cd E-mail-box-Calendar
 git checkout claude/email-calendar-manager-zsf592
 
-pnpm install && pnpm setup       # confere tudo, gera a chave, sobe o banco
+bash scripts/setup.sh            # confere tudo, gera a chave, sobe o banco
 pnpm dev                         # http://localhost:3000
 ```
 
-`pnpm setup` faz o resto: confere Node e pnpm, cria o `.env` com uma chave
+O ponto de entrada é `bash`, e não `pnpm`, de propósito: exigir o `pnpm`
+para rodar o script que instala o `pnpm` seria um círculo. Se você já tem
+tudo instalado, `pnpm setup` faz o mesmo.
+
+O script faz o resto: confere o Node, **instala o pnpm sozinho** pelo
+`corepack` (que vem com o Node) se ele faltar, cria o `.env` com uma chave
 mestra nova, sobe o Postgres (via Docker, ou usa um que já esteja no ar),
 aplica o esquema e popula os dados de demonstração.
 
@@ -89,7 +102,7 @@ as credenciais já guardadas das suas caixas.
 Sem Docker, ele diz exatamente o que fazer: abrir o Docker Desktop, ou
 `brew install postgresql@16 && brew services start postgresql@16`.
 
-Para pular os dados de demonstração: `SEED=0 pnpm setup`.
+Para pular os dados de demonstração: `SEED=0 bash scripts/setup.sh`.
 
 <details>
 <summary>Passo a passo manual, se preferir</summary>
