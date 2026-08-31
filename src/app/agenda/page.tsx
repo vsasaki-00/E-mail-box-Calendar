@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { loadAgenda, loadMonth } from '@/core/agenda/load';
 import { shiftMonths, shiftWeeks } from '@/core/agenda/week';
 import { formatInZone, formatTime, isoDateInZone, zonedParts, zoneLabel } from '@/core/time/zone';
+import { Nav } from '../nav';
 
 /**
  * Agenda unificada por semana. Ver docs/05-torre-de-controle.md
@@ -52,6 +53,7 @@ export default async function PaginaAgenda({
   if (!usuario) {
     return (
       <main className="shell">
+      <Nav atual="/agenda" />
         <h1>Agenda</h1>
         <div className="aviso">
           <p>
@@ -80,6 +82,7 @@ export default async function PaginaAgenda({
 
   return (
     <main className="shell">
+      <Nav atual="/agenda" />
       <header className="topo">
         <div>
           <h1>Agenda</h1>
@@ -89,7 +92,6 @@ export default async function PaginaAgenda({
             <strong>{tz}</strong> ({zoneLabel(dados.weekStart, tz)}).
           </p>
         </div>
-        <a href="/" className="sub">← voltar</a>
       </header>
 
       <div
@@ -321,6 +323,7 @@ async function VistaMes({
 
   return (
     <main className="shell">
+      <Nav atual="/agenda" />
       <header className="topo">
         <div>
           <h1>Agenda</h1>
@@ -329,7 +332,6 @@ async function VistaMes({
             {zoneLabel(dados.monthStart, tz)}).
           </p>
         </div>
-        <a href="/" className="sub">← voltar</a>
       </header>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>

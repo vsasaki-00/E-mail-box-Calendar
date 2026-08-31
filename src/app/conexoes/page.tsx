@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { desconectar, sincronizarAgora } from './actions';
 import { FormularioImapCaldav } from './imap-form';
+import { Nav } from '../nav';
 
 /**
  * Pagina de conexoes: conectar contas novas e gerenciar as existentes.
@@ -60,17 +61,15 @@ export default async function PaginaConexoes() {
 
   return (
     <main className="shell">
+      <Nav atual="/conexoes" />
       <header className="topo">
         <div>
           <h1>Conexões</h1>
-          <p className="sub">Contas de e-mail e calendário conectadas à Torre de Comando.</p>
+          <p className="sub">Contas de e-mail e calendário conectadas à Meridiano.</p>
         </div>
         <div>
           <a href="/perfis" className="sub" style={{ marginRight: 14 }}>
             perfis das caixas →
-          </a>
-          <a href="/" className="sub">
-            ← voltar
           </a>
         </div>
       </header>

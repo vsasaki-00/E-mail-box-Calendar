@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { formatarValor } from '@/core/finance/format';
 import { CobrancaCard, type CobrancaItem } from './cobranca-card';
 import { ExtrairForm } from './extrair-form';
+import { Nav } from '../nav';
 
 /**
  * Painel de contas a pagar. Ver docs/07-agente-de-triagem.md (fase 5B)
@@ -47,6 +48,7 @@ export default async function PaginaFinanceiro({
   if (!usuario) {
     return (
       <main className="shell">
+      <Nav atual="/financeiro" />
         <h1>Financeiro</h1>
         <div className="aviso">
           <p>
@@ -142,6 +144,7 @@ export default async function PaginaFinanceiro({
 
   return (
     <main className="shell">
+      <Nav atual="/financeiro" />
       <header className="topo">
         <div>
           <h1>Financeiro</h1>
@@ -149,7 +152,6 @@ export default async function PaginaFinanceiro({
             Contas a pagar detectadas nos seus e-mails, somando todas as caixas.
           </p>
         </div>
-        <a href="/" className="sub">← voltar</a>
       </header>
 
       <div className="aviso" style={{ marginBottom: 16 }}>

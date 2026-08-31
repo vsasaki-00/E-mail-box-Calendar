@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { formatList } from '@/core/triage/businesses';
 import { PerfilForm, type PerfilInicial } from './perfil-form';
+import { Nav } from '../nav';
 
 /**
  * Perfis das caixas. Ver docs/07-agente-de-triagem.md
@@ -40,6 +41,7 @@ export default async function PaginaPerfis() {
 
   return (
     <main className="shell">
+      <Nav atual="/perfis" />
       <header className="topo">
         <div>
           <h1>Perfis das caixas</h1>
@@ -48,9 +50,6 @@ export default async function PaginaPerfis() {
             daquela caixa — é o que faz o mesmo e-mail ser urgente numa e irrelevante em outra.
           </p>
         </div>
-        <a href="/" className="sub">
-          ← voltar
-        </a>
       </header>
 
       {conexoes.length === 0 ? (

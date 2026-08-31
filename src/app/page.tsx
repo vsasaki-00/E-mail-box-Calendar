@@ -2,6 +2,17 @@ import { prisma } from '@/lib/db';
 import { AlertaLinha } from './alerta-linha';
 import { loadControlTower, type ControlTowerData } from '@/core/metrics/control-tower';
 import { DEFAULT_TIMEZONE, formatDateTime, formatTime } from '@/core/time/zone';
+import { Nav } from './nav';
+import {
+  IconeBussola,
+  IconeCalendario,
+  IconeConexoes,
+  IconeConflito,
+  IconeDinheiro,
+  IconeRascunho,
+  IconeRelogio,
+  IconeSaude,
+} from './icons';
 
 /**
  * Torre de Controle. Ver docs/05-torre-de-controle.md
@@ -43,8 +54,12 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
   return (
     <>
       <div className="grid">
-        <section className="card">
-          <h2>Precisam de resposta</h2>
+        <section
+          className={`card ${dados.triage.urgent > 0 ? 'alerta' : 'destaque'}`}
+        >
+          <h2>
+            <IconeBussola size={13} /> Precisam de resposta
+          </h2>
           {dados.triage.needsReply === 0 && dados.triage.pending > 0 ? (
             <>
               {/* Nao dizer "0 precisam de resposta" quando ninguem analisou
@@ -84,9 +99,10 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
           )}
         </section>
 
-        <section className="card">
+        <section className={`card ${dados.bills.overdue > 0 ? 'alerta' : ''}`}>
           <h2>
-            <a href="/financeiro" style={{ color: 'inherit' }}>Cobranças a pagar</a>
+            <IconeDinheiro size={13} />
+            <a href="/financeiro">Cobranças a pagar</a>
           </h2>
           <div
             className="metric"
@@ -128,7 +144,8 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
 
         <section className="card">
           <h2>
-            <a href="/agenda" style={{ color: 'inherit' }}>Agenda de hoje</a>
+            <IconeCalendario size={13} />
+            <a href="/agenda">Agenda de hoje</a>
           </h2>
           <div className="metric">{dados.timeline.length}</div>
           <div className="metric-label">compromissos somando todas as contas</div>
@@ -141,22 +158,26 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
           )}
         </section>
 
-        <section className="card">
-          <h2>Conflitos</h2>
+        <section className={`card ${criticos.length > 0 ? 'alerta' : ''}`}>
+          <h2>
+            <IconeConflito size={13} /> Conflitos
+          </h2>
           <div className="metric" style={{ color: criticos.length ? 'var(--crit)' : undefined }}>
             {dados.conflicts.length}
           </div>
           <div className="metric-label">
             {criticos.length > 0
               ? `${criticos.length} entre contas diferentes`
-              : 'nenhuma sobreposicao entre contas'}
+              : 'nenhuma sobreposição entre contas'}
           </div>
         </section>
       </div>
 
       <div className="grid" style={{ marginTop: 16 }}>
         <section className="card">
-          <h2>Saude das conexoes</h2>
+          <h2>
+            <IconeSaude size={13} /> Saúde das conexões
+          </h2>
           {dados.connections.length === 0 ? (
             <Vazio>Nenhuma conta conectada ainda.</Vazio>
           ) : (
@@ -171,7 +192,7 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
                     <span className="sub">
                       {PROVIDER_LABEL[conexao.provider] ?? conexao.provider}
                       {conexao.minutesSinceSync !== null
-                        ? ` · sync ha ${conexao.minutesSinceSync}min`
+                        ? ` · sync há ${conexao.minutesSinceSync}min`
                         : ' · nunca sincronizou'}
                     </span>
                   </span>
@@ -183,7 +204,9 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
         </section>
 
         <section className="card">
-          <h2>Linha do dia</h2>
+          <h2>
+            <IconeCalendario size={13} /> Linha do dia
+          </h2>
           {dados.timeline.length === 0 ? (
             <Vazio>Nenhum compromisso hoje.</Vazio>
           ) : (
@@ -212,7 +235,8 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
 
         <section className="card">
           <h2>
-            <a href="/rascunhos" style={{ color: 'inherit' }}>Prazo de resposta</a>
+            <IconeRelogio size={13} />
+            <a href="/rascunhos">Prazo de resposta</a>
           </h2>
           {(() => {
             const atrasadas = dados.sla.filter((caixa) => caixa.overdue > 0);
@@ -266,7 +290,8 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
 
         <section className="card">
           <h2>
-            <a href="/rascunhos" style={{ color: 'inherit' }}>Rascunhos</a>
+            <IconeRascunho size={13} />
+            <a href="/rascunhos">Rascunhos</a>
           </h2>
           <div className="metric">{dados.drafts.proposed}</div>
           <div className="metric-label">
@@ -285,7 +310,9 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
         </section>
 
         <section className="card">
-          <h2>Conflitos e alertas</h2>
+          <h2>
+            <IconeConflito size={13} /> Conflitos e alertas
+          </h2>
           {dados.conflicts.length === 0 && dados.alerts.length === 0 ? (
             <Vazio>Nada exigindo atencao.</Vazio>
           ) : (
@@ -321,7 +348,7 @@ function SemBanco({ erro }: { erro: string }) {
   return (
     <div className="aviso">
       <p>
-        <strong>Banco de dados indisponivel.</strong> A Torre de Controle le do cache local, entao
+        <strong>Banco de dados indisponível.</strong> A Torre de Controle le do cache local, entao
         precisa do Postgres no ar.
       </p>
       <pre>
@@ -331,7 +358,7 @@ openssl rand -base64 32
 
 pnpm db:up      # sobe o Postgres via Docker
 pnpm db:push    # aplica o schema
-pnpm db:seed    # popula dados de demonstracao`}
+pnpm db:seed    # popula dados de demonstração`}
       </pre>
       <p className="sub">
         Detalhe tecnico: <code>{erro}</code>
@@ -358,42 +385,17 @@ export default async function TorreDeControle() {
 
   return (
     <main className="shell">
+      <Nav
+        atual="/"
+        direita={dados ? `estado de ${formatDateTime(dados.generatedAt, tz)}` : undefined}
+      />
+
       <header className="topo">
         <div>
           <h1>Torre de Comando</h1>
-          <p className="sub">Todas as caixas de e-mail e todos os calendarios, em um lugar so.</p>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          {dados && (
-            <div className="sub">estado de {formatDateTime(dados.generatedAt, tz)}</div>
-          )}
-          <a href="/acoes" className="sub" style={{ marginRight: 14 }}>
-            ações →
-          </a>
-          <a href="/agenda" className="sub" style={{ marginRight: 14 }}>
-            agenda →
-          </a>
-          <a href="/busca" className="sub" style={{ marginRight: 14 }}>
-            busca →
-          </a>
-          <a href="/rascunhos" className="sub" style={{ marginRight: 14 }}>
-            rascunhos →
-          </a>
-          <a href="/financeiro" className="sub" style={{ marginRight: 14 }}>
-            financeiro →
-          </a>
-          <a href="/triagem" className="sub" style={{ marginRight: 14 }}>
-            triagem →
-          </a>
-          <a href="/voz" className="sub" style={{ marginRight: 14 }}>
-            perfil de voz →
-          </a>
-          <a href="/perfis" className="sub" style={{ marginRight: 14 }}>
-            perfis das caixas →
-          </a>
-          <a href="/conexoes" className="sub">
-            gerenciar conexões →
-          </a>
+          <p className="sub">
+            Todas as caixas e todos os calendários sob uma única linha de referência.
+          </p>
         </div>
       </header>
 
@@ -403,7 +405,7 @@ export default async function TorreDeControle() {
         <div className="aviso">
           <p>
             <strong>Banco vazio.</strong> Rode <code>pnpm db:seed</code> para popular dados de
-            demonstracao e ver a tela funcionando.
+            demonstração e ver a tela funcionando.
           </p>
         </div>
       )}

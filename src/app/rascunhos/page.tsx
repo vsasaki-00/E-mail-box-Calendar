@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { RascunhoCard, type RascunhoItem } from './rascunho-card';
+import { Nav } from '../nav';
 
 /**
  * Rascunhos de resposta (fase 5D). Ver docs/07-agente-de-triagem.md
@@ -37,6 +38,7 @@ export default async function PaginaRascunhos({
   if (!usuario) {
     return (
       <main className="shell">
+      <Nav atual="/rascunhos" />
         <h1>Rascunhos</h1>
         <div className="aviso">
           <p>
@@ -134,6 +136,7 @@ export default async function PaginaRascunhos({
 
   return (
     <main className="shell">
+      <Nav atual="/rascunhos" />
       <header className="topo">
         <div>
           <h1>Rascunhos</h1>
@@ -141,7 +144,6 @@ export default async function PaginaRascunhos({
             Respostas escritas com o seu perfil de voz, para você aprovar ou corrigir.
           </p>
         </div>
-        <a href="/" className="sub">← voltar</a>
       </header>
 
       <div className="aviso" style={{ marginBottom: 16 }}>

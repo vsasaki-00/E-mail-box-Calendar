@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { runSearch } from '@/core/search/run';
 import { MIN_QUERY_LENGTH } from '@/core/search/query';
+import { Nav } from '../nav';
 
 /**
  * Busca unificada (fase 3). Ver docs/05-torre-de-controle.md
@@ -65,12 +66,12 @@ export default async function PaginaBusca({
 
   return (
     <main className="shell">
+      <Nav atual="/busca" />
       <header className="topo">
         <div>
           <h1>Busca</h1>
           <p className="sub">Todas as caixas e todos os calendários de uma vez.</p>
         </div>
-        <a href="/" className="sub">← voltar</a>
       </header>
 
       <form method="get" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>

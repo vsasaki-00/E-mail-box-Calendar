@@ -1,0 +1,58 @@
+import {
+  IconeAcoes,
+  IconeBusca,
+  IconeCalendario,
+  IconeConexoes,
+  IconeDinheiro,
+  IconePerfis,
+  IconeRascunho,
+  IconeTorre,
+  IconeTriagem,
+  IconeVoz,
+  MarcaMeridiano,
+} from './icons';
+
+/**
+ * Barra de navegação do Meridiano.
+ *
+ * Server Component: a navegação não tem estado, e o item ativo é decidido
+ * por quem renderiza a página — sem JavaScript no cliente para isso.
+ */
+
+const ITENS = [
+  { href: '/', rotulo: 'Torre', Icone: IconeTorre },
+  { href: '/triagem', rotulo: 'Triagem', Icone: IconeTriagem },
+  { href: '/agenda', rotulo: 'Agenda', Icone: IconeCalendario },
+  { href: '/financeiro', rotulo: 'Financeiro', Icone: IconeDinheiro },
+  { href: '/rascunhos', rotulo: 'Rascunhos', Icone: IconeRascunho },
+  { href: '/acoes', rotulo: 'Ações', Icone: IconeAcoes },
+  { href: '/busca', rotulo: 'Busca', Icone: IconeBusca },
+  { href: '/voz', rotulo: 'Voz', Icone: IconeVoz },
+  { href: '/perfis', rotulo: 'Perfis', Icone: IconePerfis },
+  { href: '/conexoes', rotulo: 'Conexões', Icone: IconeConexoes },
+] as const;
+
+export function Nav({ atual, direita }: { atual?: string; direita?: React.ReactNode }) {
+  return (
+    <div className="barra">
+      <a href="/" className="marca">
+        <MarcaMeridiano />
+        <span>
+          <span className="marca-nome">Meridiano</span>
+          <span className="marca-sub">e-mail · agenda · uma referência</span>
+        </span>
+      </a>
+
+      <nav className="nav" aria-label="Seções">
+        {ITENS.map(({ href, rotulo, Icone }) => (
+          <a key={href} href={href} className={atual === href ? 'ativo' : undefined}>
+            <Icone size={14} />
+            {rotulo}
+          </a>
+        ))}
+      </nav>
+
+      {direita ? <div className="sub">{direita}</div> : null}
+    </div>
+  );
+}

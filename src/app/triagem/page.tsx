@@ -2,6 +2,7 @@ import type { TriageCategory } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { ItemTriagemLinha, type ItemTriagem } from './item-form';
+import { Nav } from '../nav';
 
 /**
  * Lista de triagem, com correcao. Ver docs/07-agente-de-triagem.md
@@ -55,6 +56,7 @@ export default async function PaginaTriagem({
   if (!usuario) {
     return (
       <main className="shell">
+      <Nav atual="/triagem" />
         <h1>Triagem</h1>
         <div className="aviso">
           <p>
@@ -110,6 +112,7 @@ export default async function PaginaTriagem({
 
   return (
     <main className="shell">
+      <Nav atual="/triagem" />
       <header className="topo">
         <div>
           <h1>Triagem</h1>
@@ -118,9 +121,6 @@ export default async function PaginaTriagem({
             correção sua ensina o sistema.
           </p>
         </div>
-        <a href="/" className="sub">
-          ← voltar
-        </a>
       </header>
 
       {totalTriado === 0 ? (

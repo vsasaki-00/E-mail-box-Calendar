@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { VozCard, type VozInicial } from './voz-card';
+import { Nav } from '../nav';
 
 /**
  * Perfil de voz por caixa. Ver docs/07-agente-de-triagem.md (fase 5C)
@@ -52,6 +53,7 @@ export default async function PaginaVoz() {
 
   return (
     <main className="shell">
+      <Nav atual="/voz" />
       <header className="topo">
         <div>
           <h1>Perfil de voz</h1>
@@ -60,9 +62,6 @@ export default async function PaginaVoz() {
             diferente em cada negócio — isto captura essa diferença.
           </p>
         </div>
-        <a href="/" className="sub">
-          ← voltar
-        </a>
       </header>
 
       <div className="aviso" style={{ marginBottom: 20 }}>

@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime } from '@/core/time/zone';
 import { AcaoLinha, type AcaoItem } from './acao-linha';
+import { Nav } from '../nav';
 
 /**
  * Fila de ações e log de auditoria (fase 4).
@@ -36,6 +37,7 @@ export default async function PaginaAcoes({
   if (!usuario) {
     return (
       <main className="shell">
+      <Nav atual="/acoes" />
         <h1>Ações</h1>
         <div className="aviso">
           <p>
@@ -88,6 +90,7 @@ export default async function PaginaAcoes({
 
   return (
     <main className="shell">
+      <Nav atual="/acoes" />
       <header className="topo">
         <div>
           <h1>Ações</h1>
@@ -96,7 +99,6 @@ export default async function PaginaAcoes({
             na mesma lista.
           </p>
         </div>
-        <a href="/" className="sub">← voltar</a>
       </header>
 
       <div className="aviso" style={{ marginBottom: 16 }}>
