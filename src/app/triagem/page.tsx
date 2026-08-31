@@ -4,6 +4,7 @@ import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone
 import { ItemTriagemLinha, type ItemTriagem } from './item-form';
 import { Nav } from '../nav';
 import { BotaoTriar } from './botao-triar';
+import { ProvedorSelecao } from './selecao';
 
 /**
  * Lista de triagem, com correcao. Ver docs/07-agente-de-triagem.md
@@ -161,13 +162,15 @@ export default async function PaginaTriagem({
             ))}
           </div>
 
-          <section className="card">
-            {itens.length === 0 ? (
-              <p className="vazio">Nada neste filtro.</p>
-            ) : (
-              itens.map((item) => <ItemTriagemLinha key={item.unifiedItemId} item={item} />)
-            )}
-          </section>
+          <ProvedorSelecao>
+            <section className="card">
+              {itens.length === 0 ? (
+                <p className="vazio">Nada neste filtro.</p>
+              ) : (
+                itens.map((item) => <ItemTriagemLinha key={item.unifiedItemId} item={item} />)
+              )}
+            </section>
+          </ProvedorSelecao>
 
           <p className="sub" style={{ marginTop: 14 }}>
             {totalTriado} {totalTriado === 1 ? 'item classificado' : 'itens classificados'}

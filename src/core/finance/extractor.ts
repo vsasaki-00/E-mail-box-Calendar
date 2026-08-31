@@ -5,6 +5,7 @@ import { findBoletos, type BoletoParsed } from './boleto';
 import { parsePix, type PixParsed } from './pix';
 import { pickAmount, pickDueDate } from './text';
 import type { BillExtraction, BillInput, BillKind } from './types';
+import { envOu } from '@/lib/env';
 
 /**
  * Extracao de cobrancas (fase 5B). Ver docs/07-agente-de-triagem.md
@@ -106,7 +107,7 @@ export function buildBillBatchPrompt(inputs: BillInput[]): string {
 }
 
 export function createAnthropicBillModel(options?: { apiKey?: string; model?: string }): BillModel {
-  const model = options?.model ?? process.env.BILL_MODEL ?? DEFAULT_BILL_MODEL;
+  const model = options?.model ?? envOu(process.env.BILL_MODEL, DEFAULT_BILL_MODEL);
   const client = new Anthropic(options?.apiKey ? { apiKey: options.apiKey } : {});
 
   return {

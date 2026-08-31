@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import { composeDraft, type VoiceForDraft } from './compose';
 import { buildDraftSystemPrompt, buildDraftUserPrompt, DRAFT_PROMPT_VERSION } from './prompt';
 import type { DraftGeneration, DraftInput, DraftMailboxContext, DraftRefused } from './types';
+import { envOu } from '@/lib/env';
 
 /**
  * Geracao de rascunhos (fase 5D). Ver docs/07-agente-de-triagem.md
@@ -37,7 +38,7 @@ export interface DraftModel {
 export const DEFAULT_DRAFT_MODEL = 'claude-opus-5';
 
 export function createAnthropicDraftModel(options?: { apiKey?: string; model?: string }): DraftModel {
-  const model = options?.model ?? process.env.DRAFT_MODEL ?? DEFAULT_DRAFT_MODEL;
+  const model = options?.model ?? envOu(process.env.DRAFT_MODEL, DEFAULT_DRAFT_MODEL);
   const client = new Anthropic(options?.apiKey ? { apiKey: options.apiKey } : {});
 
   return {

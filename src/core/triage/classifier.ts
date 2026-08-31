@@ -4,6 +4,7 @@ import * as z from 'zod/v4';
 import { prefilter } from './prefilter';
 import { buildBatchPrompt, buildSystemPrompt, PROMPT_VERSION } from './prompt';
 import type { MailboxContext, TriageInput, TriageResult } from './types';
+import { envOu } from '@/lib/env';
 
 /**
  * Classificador de triagem. Ver docs/07-agente-de-triagem.md
@@ -65,7 +66,7 @@ export function createAnthropicTriageModel(options?: {
   apiKey?: string;
   model?: string;
 }): TriageModel {
-  const model = options?.model ?? process.env.TRIAGE_MODEL ?? DEFAULT_TRIAGE_MODEL;
+  const model = options?.model ?? envOu(process.env.TRIAGE_MODEL, DEFAULT_TRIAGE_MODEL);
   const client = new Anthropic(options?.apiKey ? { apiKey: options.apiKey } : {});
 
   return {

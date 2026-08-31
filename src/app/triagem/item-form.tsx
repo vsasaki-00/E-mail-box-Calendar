@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { corrigirTriagem, type CorrigirResultado } from './actions';
+import { CaixaSelecao } from './selecao';
 
 /**
  * Uma linha da triagem, com correcao inline.
@@ -82,6 +83,7 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
       }}
     >
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <CaixaSelecao id={item.unifiedItemId} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span className={`pill ${classePorCategoria(item.category)}`}>
