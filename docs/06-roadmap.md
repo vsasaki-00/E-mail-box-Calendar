@@ -151,7 +151,7 @@ com escopos de escrita.
 
 ---
 
-## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A+5C em andamento)
+## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A+5C entregues)
 
 Reflexão completa, com as armadilhas e o raciocínio por trás do
 faseamento: [`07-agente-de-triagem.md`](07-agente-de-triagem.md).
@@ -176,12 +176,17 @@ sub-fases de risco crescente, cada uma utilizável sozinha:
   (valor, vencimento, beneficiário, linha digitável). Melhor relação
   valor/risco do projeto: verificável contra o e-mail original, nada
   irreversível.
-- **5C — Perfil de voz por caixa** 🔶: derivado da pasta Enviados de cada
-  conta, não de formulário. A extração está implementada e testada (36
-  testes): separa texto autoral do citado, descarta encaminhamentos e
-  respostas curtas, detecta assinatura por repetição. O conector IMAP foi
-  corrigido para sincronizar `SENT` — sem isso contas Apple/IMAP ficariam
-  sem perfil. Falta o job que persiste e a UI de validação.
+- **5C — Perfil de voz por caixa** ✅: derivado da pasta Enviados de cada
+  conta, não de formulário. Extração, job de persistência e tela `/voz` de
+  validação estão implementados e testados (57 testes): separa texto autoral
+  do citado, descarta encaminhamentos e respostas curtas, detecta assinatura
+  por repetição (sem engolir a despedida, que é campo próprio) e normaliza
+  os três formatos de corpo dos conectores. O conector IMAP foi corrigido
+  para sincronizar `SENT` — sem isso contas Apple/IMAP ficariam sem perfil.
+  **Este job não faz nenhuma chamada a API de modelo**: todo o processamento
+  é local. O perfil é uma proposta até você confirmar "é assim que eu
+  escrevo"; rederivar reseta essa validação. Falta rodar contra uma caixa
+  real e grande — o corpus de verificação é sintético.
 - **5D — Rascunhos com aprovação**: gera resposta com o perfil da caixa
   certa. **Nunca envia.** Cada edição do usuário vira sinal de melhoria.
 - **5E — Ações em lote e envio**: só depois que a 5D tiver ganho confiança.

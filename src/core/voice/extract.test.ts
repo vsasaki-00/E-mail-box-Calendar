@@ -170,6 +170,42 @@ describe('detectSignature — por repeticao, nao por regra', () => {
     ];
     expect(detectSignature(amostras)).toBeNull();
   });
+
+  it('NAO engole a despedida dentro da assinatura', () => {
+    // Bug encontrado rodando contra um corpus real: como "Abraço," repetia
+    // junto do bloco, a assinatura detectada virava "Abraço,\nVictor
+    // Sasaki\nBrand.co" — e a despedida ja tem campo proprio no perfil.
+    const amostras = [
+      'Fechamos a agenda da palestra para quinta.\n\nAbraço,\nVictor Sasaki\nBrand.co',
+      'Segue o material que combinamos na call.\n\nAbraço,\nVictor Sasaki\nBrand.co',
+      'Confirmo o valor da proposta enviada ontem.\n\nAbraço,\nVictor Sasaki\nBrand.co',
+    ];
+
+    const assinatura = detectSignature(amostras);
+    expect(assinatura).toBe('Victor Sasaki\nBrand.co');
+    expect(assinatura).not.toContain('Abraço');
+    // E a despedida continua sendo capturada onde deve.
+    expect(extractClosing(amostras[0] as string)).toBe('Abraço,');
+  });
+
+  it('aceita assinatura de uma linha so quando ha despedida antes', () => {
+    // Sem a despedida no caminho, "Victor Sasaki" sozinho ja e assinatura.
+    const amostras = [
+      'Combinado, pode seguir com o cronograma proposto.\n\nAbraço,\nVictor Sasaki',
+      'Revisei o contrato e está tudo certo do meu lado.\n\nAbraço,\nVictor Sasaki',
+      'Marquei a conversa com o time para segunda-feira.\n\nAbraço,\nVictor Sasaki',
+    ];
+    expect(detectSignature(amostras)).toBe('Victor Sasaki');
+  });
+
+  it('devolve null quando a mensagem termina na despedida, sem assinatura', () => {
+    const amostras = [
+      'Pode ser na quinta às 14h, confirmo o link amanhã.\n\nAbraço,',
+      'Recebi o documento e devolvo com os ajustes hoje.\n\nAbraço,',
+      'Fechado, sigo com a proposta como conversamos.\n\nAbraço,',
+    ];
+    expect(detectSignature(amostras)).toBeNull();
+  });
 });
 
 describe('detectFormality', () => {

@@ -270,6 +270,9 @@ export default async function TorreDeControle() {
           <a href="/triagem" className="sub" style={{ marginRight: 14 }}>
             triagem →
           </a>
+          <a href="/voz" className="sub" style={{ marginRight: 14 }}>
+            perfil de voz →
+          </a>
           <a href="/perfis" className="sub" style={{ marginRight: 14 }}>
             perfis das caixas →
           </a>

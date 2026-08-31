@@ -173,26 +173,57 @@ export function extractGreeting(autoral: string): string | null {
   return casa ? primeira.replace(/\s+/g, ' ') : null;
 }
 
+/** Linhas nao-vazias, ja aparadas. */
+function linhasUteis(autoral: string): string[] {
+  return autoral
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+/** Uma linha isolada e uma despedida reconhecida? */
+function isClosingLine(linha: string): boolean {
+  // A despedida e curta por natureza; uma frase nao e despedida.
+  if (countWords(linha) > 5) return false;
+  const normalizada = linha.toLowerCase().replace(/[,!.:;]+$/, '');
+  return DESPEDIDAS.some(
+    (d) => normalizada === d || normalizada.startsWith(`${d} `) || normalizada.startsWith(`${d},`),
+  );
+}
+
+/** Quantas linhas finais podem conter a despedida. */
+const JANELA_DE_DESPEDIDA = 5;
+
 /**
  * Ultima linha curta que seja uma despedida reconhecida. Procura de tras
  * para frente, pulando o que parece bloco de assinatura.
  */
 export function extractClosing(autoral: string): string | null {
-  const linhas = autoral
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
+  const linhas = linhasUteis(autoral);
 
   // Olha so as ultimas linhas: despedida nao fica no meio do texto.
-  for (const linha of linhas.slice(-5).reverse()) {
-    if (countWords(linha) > 5) continue;
-    const normalizada = linha.toLowerCase().replace(/[,!.:;]+$/, '');
-    const casa = DESPEDIDAS.some(
-      (d) => normalizada === d || normalizada.startsWith(`${d} `) || normalizada.startsWith(`${d},`),
-    );
-    if (casa) return linha.replace(/\s+/g, ' ');
+  for (const linha of linhas.slice(-JANELA_DE_DESPEDIDA).reverse()) {
+    if (isClosingLine(linha)) return linha.replace(/\s+/g, ' ');
   }
   return null;
+}
+
+/**
+ * Linhas que podem fazer parte da assinatura: o que vem DEPOIS da despedida.
+ *
+ * Sem esse corte, "Abraço," entra no bloco repetido e a assinatura detectada
+ * vira "Abraço,\nVictor Sasaki\nBrand.co" — a despedida contada duas vezes,
+ * ja que ela tem campo proprio. Na hora de montar o rascunho (fase 5D) isso
+ * produziria "Abraço," duplicado.
+ */
+function linhasDeAssinatura(autoral: string): string[] {
+  const linhas = linhasUteis(autoral);
+
+  const inicioDaJanela = Math.max(0, linhas.length - JANELA_DE_DESPEDIDA);
+  for (let i = linhas.length - 1; i >= inicioDaJanela; i -= 1) {
+    if (isClosingLine(linhas[i] as string)) return linhas.slice(i + 1);
+  }
+  return linhas;
 }
 
 /**
@@ -201,18 +232,19 @@ export function extractClosing(autoral: string): string | null {
  * Detectar por repeticao (e nao por regra "depois do --") e o que funciona
  * na pratica: pouca gente usa o separador padrao, mas todo mundo repete o
  * mesmo bloco.
+ *
+ * A despedida fica de fora: ela e um campo separado do perfil.
  */
 export function detectSignature(amostras: string[], minRepeticoes = 3): string | null {
   if (amostras.length < minRepeticoes) return null;
 
   const contagem = new Map<string, number>();
   for (const autoral of amostras) {
-    const linhas = autoral
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    // Considera blocos de 2 a 4 linhas finais como candidatos.
-    for (let tamanho = 2; tamanho <= 4; tamanho += 1) {
+    const linhas = linhasDeAssinatura(autoral);
+    // Blocos de 1 a 4 linhas finais sao candidatos. Uma linha so vale como
+    // candidato porque, sem a despedida, "Victor Sasaki" sozinho ja e uma
+    // assinatura legitima — e repetir 3x continua sendo a exigencia real.
+    for (let tamanho = 1; tamanho <= 4; tamanho += 1) {
       if (linhas.length < tamanho) break;
       const bloco = linhas.slice(-tamanho).join('\n');
       if (countWords(bloco) > 30) continue;

@@ -350,10 +350,14 @@ métrica bonita e falsa. `meetsAcceptanceCriteria` tem duas barreiras, e a
 segunda não negocia: **qualquer** item escondido que o usuário respondeu
 reprova, por mais alta que seja a acurácia global.
 
-**Perfil de voz** (`src/core/voice/extract.ts`) — separa o texto autoral do
-citado (marcadores do Gmail e Outlook, pt e en), descarta encaminhamentos e
-respostas curtas (senão o perfil aprende que você escreve "ok"), e detecta
+**Perfil de voz** (`src/core/voice/`) — `extract.ts` separa o texto autoral
+do citado (marcadores do Gmail e Outlook, pt e en), descarta encaminhamentos
+e respostas curtas (senão o perfil aprende que você escreve "ok"), e detecta
 assinatura **por repetição** entre mensagens, não por regra de separador.
+`body-text.ts` normaliza os três formatos de corpo que os conectores
+devolvem — sem ele o perfil do Microsoft aprenderia tags HTML e o do IMAP
+aprenderia cabeçalhos de e-mail. `persist.ts` é o job que busca os corpos
+que faltam, monta o perfil e o salva. Tela em `/voz`, descrita abaixo.
 
 **Torre de Controle** — o card deixou de ser "não lidos" e passou a ser
 "precisam de resposta", com cobranças em card próprio.
@@ -371,7 +375,7 @@ porque `includeInUnified` continua verdadeiro só para `INBOX`.
 `ANTHROPIC_API_KEY` neste ambiente (a API responde 401). O que foi
 verificado de fato:
 
-- 222 testes automatizados, sendo 92 novos desta fase.
+- 256 testes automatizados, sendo 126 novos desta fase.
 - Toda a orquestração da triagem, com um modelo falso — incluindo os modos
   de falha que importam.
 - A rota `POST /api/triage/run` falha de forma limpa e explicativa sem a
@@ -393,8 +397,10 @@ histórico real antes de confiar.
 2. Rodar a avaliação contra o histórico e publicar o número.
 3. ~~UI de correção da triagem~~ ✅ **entregue** — `/triagem`. Ver abaixo.
 4. ~~Tela do `MailboxProfile`~~ ✅ **entregue** — `/perfis`. Ver abaixo.
-5. Job que deriva o `VoiceProfile` da pasta Enviados e o mostra para você
-   validar.
+5. ~~Job que deriva o `VoiceProfile` da pasta Enviados~~ ✅ **entregue** —
+   `/voz`. Ver abaixo.
+6. Decidir a fase 5B (extração para o painel financeiro) ou a 5D (rascunhos
+   com aprovação) como próximo bloco.
 
 ---
 
@@ -468,3 +474,58 @@ correções suas já foram registradas.
 **Verificado**: os quatro filtros retornando o conjunto certo; ordenação por
 urgência; selo "corrigido por você" após a correção; item migrando de filtro
 ao ser recategorizado; e o bloqueio de sobrescrita descrito acima.
+
+---
+
+# Tela do perfil de voz (`/voz`) ✅
+
+**O perfil é derivado, não declarado.** Ninguém descreve o próprio jeito de
+escrever com precisão — e você já escreve diferente em cada negócio, sem
+nunca ter escrito isso em lugar nenhum. A prova está gravada na sua pasta
+Enviados: o job lê até 60 mensagens enviadas daquela caixa e extrai o
+padrão.
+
+**Nada sai da sua máquina aqui.** Este job **não faz nenhuma chamada a API
+de modelo** — todo o processamento é local, com funções puras. É a operação
+mais invasiva do sistema em termos de dados (lê o corpo do que você
+escreveu) e a menos invasiva em termos de exposição. Diferente da triagem,
+que envia metadados, e da redação (5D), que enviará o thread sob demanda.
+
+O que o perfil captura, por caixa: como você começa, como você termina, a
+assinatura, o tamanho típico da sua mensagem, o registro (formal / neutro /
+informal), o idioma e traços observados.
+
+**A despedida e a assinatura são campos separados.** Bug encontrado rodando
+contra um corpus realista: como `Abraço,` repetia junto do bloco final, a
+assinatura detectada saía `"Abraço,\nVictor Sasaki\nBrand.co"` — a despedida
+contada duas vezes, o que produziria `Abraço,` duplicado no rascunho da 5D.
+Corrigido: o bloco candidato a assinatura começa **depois** da despedida.
+
+**O perfil é uma proposta até você confirmar.** A tela pergunta "É assim que
+você escreve nesta caixa?" e aceita uma correção em texto livre. Separar a
+validação da geração é deliberado: julgar "é assim que eu escrevo?" é muito
+mais fácil, e muito mais confiável, do que julgar um texto já gerado — que
+é onde a maioria das ferramentas de rascunho falha.
+
+**Derivar de novo reseta a validação.** Você aprovou um perfil específico;
+o novo é outro. Fingir que a aprovação antiga vale seria mentir sobre o
+único sinal que autoriza a fase 5D.
+
+Quando não há material suficiente, a tela diz **por quê** — "encontrei 9
+mensagens enviadas, mas só 3 serviram (o resto é encaminhamento ou resposta
+curta demais)" — em vez de só dizer que falhou. Sem isso você não saberia se
+o problema é a caixa ou o sistema. Abaixo de 5 amostras úteis o perfil não é
+salvo: perfil magro induz rascunho ruim.
+
+**Verificado** contra um corpus de 9 mensagens montado para exercitar o
+ruído real da pasta Enviados (5 respostas autorais, 1 encaminhamento, 2
+confirmações curtas, 1 resposta com trecho citado): 6 amostras entraram e 3
+foram descartadas pelo motivo certo; o trecho citado foi cortado; a
+despedida saiu do bloco de assinatura; e `userApproved` voltou a `false` na
+rederivação. Os dados de teste foram removidos do banco depois.
+
+**O que NÃO foi verificado**: a derivação contra uma caixa real e grande.
+O corpus acima é sintético, ainda que realista. O primeiro perfil derivado
+de uma conta de verdade é onde a lista de saudações e a detecção de
+assinatura vão ser postas à prova — e é exatamente por isso que a tela pede
+sua validação antes de qualquer rascunho existir.
