@@ -8,6 +8,10 @@ import { triageConnection } from '@/core/triage/persist';
  * Ver docs/07-agente-de-triagem.md. Somente leitura e sem acao: classifica e
  * grava. Nenhum e-mail e arquivado, movido ou apagado por esta rota.
  */
+// Classificar chama o modelo para cada caixa: o padrao do runtime (~15s)
+// nao cobre. 60s e o teto do plano Hobby da Vercel.
+export const maxDuration = 60;
+
 export async function POST() {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(

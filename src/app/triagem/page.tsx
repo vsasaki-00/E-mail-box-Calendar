@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { ItemTriagemLinha, type ItemTriagem } from './item-form';
 import { Nav } from '../nav';
+import { BotaoTriar } from './botao-triar';
 
 /**
  * Lista de triagem, com correcao. Ver docs/07-agente-de-triagem.md
@@ -14,6 +15,9 @@ import { Nav } from '../nav';
  */
 
 export const dynamic = 'force-dynamic';
+
+// Classificar chama o modelo caixa a caixa; o padrao do runtime nao cobre.
+export const maxDuration = 60;
 
 const ORDEM_PRIORIDADE: Record<string, number> = { URGENT: 0, HIGH: 1, NORMAL: 2, LOW: 3 };
 const LIMITE_BAIXA_CONFIANCA = 0.6;
@@ -128,13 +132,15 @@ export default async function PaginaTriagem({
           <p>
             <strong>Nenhuma triagem executada ainda.</strong>{' '}
             {pendentes > 0 && `${pendentes} mensagens aguardando classificação. `}
-            Configure <code>ANTHROPIC_API_KEY</code> no <code>.env</code> e chame{' '}
-            <code>POST /api/triage/run</code>.
+            A triagem envia <strong>apenas metadados</strong> — remetente, assunto e um trecho
+            curto. O corpo do e-mail nunca sai daqui.
           </p>
-          <p className="sub">
-            Antes disso, vale preencher os <a href="/perfis">perfis das caixas</a> — sem contexto
-            de negócio a classificação fica bem pior.
+          <p className="sub" style={{ marginBottom: 12 }}>
+            Vale preencher antes os <a href="/perfis">perfis das caixas</a> — sem contexto de
+            negócio a classificação fica bem pior. Requer <code>ANTHROPIC_API_KEY</code>
+            configurada.
           </p>
+          <BotaoTriar pendentes={pendentes} />
         </div>
       ) : (
         <>
