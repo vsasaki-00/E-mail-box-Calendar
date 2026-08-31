@@ -708,16 +708,26 @@ async function fetchEventsDoCalendario(
     alvo.searchParams.set('startDateTime', janelaEfetiva.since.toISOString());
     alvo.searchParams.set('endDateTime', janelaEfetiva.until.toISOString());
     alvo.searchParams.set('$select', EVENT_SELECT);
-    alvo.searchParams.set('$top', String(CALENDAR_PAGE_SIZE));
+    // SEM `$top` aqui. O Graph recusa a chamada inteira com
+    // ErrorInvalidUrlQuery: "$top is not supported with change tracking over
+    // the CalendarView resource as page size cannot be guaranteed" — o
+    // tamanho de pagina vai no header Prefer (odata.maxpagesize), montado no
+    // laco abaixo. Foi o que impediu as duas primeiras caixas Outlook reais
+    // de sincronizar.
     url = alvo.toString();
   }
 
   do {
     let resposta: GraphDeltaPage<GraphEventResource & { '@removed'?: unknown }>;
     try {
-      // O Prefer normaliza todos os dateTime da resposta para UTC, evitando
-      // ter que mapear nomes de fuso horario do Windows para IANA.
-      resposta = await graphFetch(ctx, url, { Prefer: 'outlook.timezone="UTC"' });
+      // Dois preferences na mesma linha, separados por virgula, como manda
+      // o RFC 7240: o fuso normaliza os dateTime da resposta para UTC
+      // (evitando mapear nomes de fuso do Windows para IANA), e o
+      // maxpagesize e o unico jeito aceito de pedir tamanho de pagina no
+      // calendarView/delta.
+      resposta = await graphFetch(ctx, url, {
+        Prefer: `outlook.timezone="UTC", odata.maxpagesize=${CALENDAR_PAGE_SIZE}`,
+      });
     } catch (error) {
       if (error instanceof ConnectorError && error.code === 'CURSOR_EXPIRED') throw error;
       throw error;

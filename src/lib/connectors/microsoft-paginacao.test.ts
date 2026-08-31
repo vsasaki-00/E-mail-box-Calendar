@@ -146,3 +146,35 @@ describe('orcamento de tempo', () => {
     expect(new Set(vistos).size).toBe(vistos.length);
   });
 });
+
+describe('calendarView/delta — restricoes do Graph', () => {
+  it('NAO manda $top e pede tamanho de pagina pelo header Prefer', async () => {
+    // O Graph recusa a chamada inteira com ErrorInvalidUrlQuery quando
+    // `$top` aparece no calendarView/delta. Foi o erro real que impediu as
+    // duas primeiras caixas Outlook deste projeto de sincronizar.
+    const chamadas: { url: string; prefer?: string }[] = [];
+
+    vi.stubGlobal('fetch', async (entrada: string | URL, init?: RequestInit) => {
+      const url = String(entrada);
+      const prefer = new Headers(init?.headers).get('prefer') ?? undefined;
+      chamadas.push({ url, prefer });
+
+      if (url.includes('/me/calendars') && !url.includes('calendarView')) {
+        return Response.json({ value: [{ id: 'cal1', name: 'Agenda', isDefaultCalendar: true }] });
+      }
+      if (url.includes('calendarView/delta')) {
+        return Response.json({ value: [], '@odata.deltaLink': 'https://graph/delta?final' });
+      }
+      return new Response('rota inesperada', { status: 500 });
+    });
+
+    await conector.fetchEvents(contexto(), {});
+
+    const delta = chamadas.find((c) => c.url.includes('calendarView/delta'));
+    expect(delta).toBeDefined();
+    expect(delta!.url).not.toContain('$top');
+    expect(delta!.prefer).toContain('odata.maxpagesize=');
+    // E o fuso continua normalizado para UTC no mesmo header.
+    expect(delta!.prefer).toContain('outlook.timezone="UTC"');
+  });
+});
