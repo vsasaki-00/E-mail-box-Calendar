@@ -127,8 +127,12 @@ export function buildGoogleAuthUrl(params: {
   url.searchParams.set('code_challenge_method', 'S256');
   // access_type=offline + prompt=consent garantem o refresh_token: o Google so
   // devolve refresh_token na primeira autorizacao, a menos que forcemos consent.
+  //
+  // `select_account` junto porque este app existe para ligar VARIAS caixas.
+  // Sem ele, o Google reusa a conta ativa no navegador em silencio, e a
+  // segunda conexao acabaria gravando de novo a primeira conta.
   url.searchParams.set('access_type', 'offline');
-  url.searchParams.set('prompt', 'consent');
+  url.searchParams.set('prompt', 'consent select_account');
   if (params.loginHint) url.searchParams.set('login_hint', params.loginHint);
   return url.toString();
 }

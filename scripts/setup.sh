@@ -83,14 +83,26 @@ if [ -f .env ]; then
 else
   cp .env.example .env
   chave="$(openssl rand -base64 32)"
+  sessao="$(openssl rand -base64 32)"
+  cron="$(openssl rand -hex 24)"
+
   # `|` como separador porque a chave base64 contem `/`.
-  if sed --version >/dev/null 2>&1; then
-    sed -i "s|^MASTER_ENCRYPTION_KEY=.*|MASTER_ENCRYPTION_KEY=\"$chave\"|" .env
-  else
-    # BSD sed, que e o do macOS, exige argumento no -i.
-    sed -i '' "s|^MASTER_ENCRYPTION_KEY=.*|MASTER_ENCRYPTION_KEY=\"$chave\"|" .env
-  fi
-  verde "✓ .env criado com uma chave mestra nova"
+  trocar() {
+    if sed --version >/dev/null 2>&1; then
+      sed -i "s|^$1=.*|$1=\"$2\"|" .env
+    else
+      # BSD sed, que e o do macOS, exige argumento no -i.
+      sed -i '' "s|^$1=.*|$1=\"$2\"|" .env
+    fi
+  }
+
+  trocar MASTER_ENCRYPTION_KEY "$chave"
+  # Segredos do portao de entrada. O HASH DA SENHA fica de fora de proposito:
+  # o script nao inventa senha para voce. Rode `pnpm gerar:senha`.
+  trocar SESSION_SECRET "$sessao"
+  trocar CRON_SECRET "$cron"
+
+  verde "✓ .env criado com chave mestra e segredos de sessão novos"
 fi
 
 # ---------------------------------------------------------------------------

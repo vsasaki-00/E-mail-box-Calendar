@@ -71,7 +71,9 @@ describe('buildGoogleAuthUrl', () => {
   it('garante refresh_token com access_type offline e consent', () => {
     // Sem isso o Google so devolve refresh_token na primeira autorizacao.
     expect(url.searchParams.get('access_type')).toBe('offline');
-    expect(url.searchParams.get('prompt')).toBe('consent');
+    // `consent` garante o refresh_token; `select_account` garante que a
+    // segunda e a terceira caixa nao virem uma copia da primeira.
+    expect(url.searchParams.get('prompt')).toBe('consent select_account');
   });
 });
 

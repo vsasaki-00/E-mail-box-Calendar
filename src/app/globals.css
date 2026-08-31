@@ -420,3 +420,114 @@ a:focus-visible {
   outline: 2px solid var(--meridiano);
   outline-offset: 1px;
 }
+
+/* ---------------------------------------------------------------------------
+   Tela de entrada
+
+   Sem barra de navegação e sem dados: quem chega aqui ainda não provou nada.
+   --------------------------------------------------------------------------- */
+
+.entrar {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.entrar-cartao {
+  width: 100%;
+  max-width: 340px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 26px 24px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* A mesma linha vertical dos cartões: a marca do app é o meridiano. */
+.entrar-cartao::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--meridiano);
+}
+
+.entrar-marca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  color: var(--text);
+}
+
+.entrar-nome {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+.entrar-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entrar-campo {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-forte);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.entrar-botao {
+  margin-top: 10px;
+  padding: 9px 14px;
+  border: 1px solid var(--meridiano);
+  border-radius: var(--radius);
+  background: var(--meridiano);
+  color: #fffdf9;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.entrar-botao:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.entrar-erro {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--crit);
+}
+
+.entrar-nota {
+  margin: 20px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted-claro);
+}
+
+/* Botão "sair" na barra: discreto, texto puro. */
+.sair {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sair:hover {
+  color: var(--crit);
+}

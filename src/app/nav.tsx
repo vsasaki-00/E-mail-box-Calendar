@@ -11,6 +11,7 @@ import {
   IconeVoz,
   MarcaMeridiano,
 } from './icons';
+import { sair } from './entrar/actions';
 
 /**
  * Barra de navegação do Meridiano.
@@ -53,6 +54,18 @@ export function Nav({ atual, direita }: { atual?: string; direita?: React.ReactN
       </nav>
 
       {direita ? <div className="sub">{direita}</div> : null}
+
+      {/* Sem senha cadastrada não há sessão para encerrar, e o botão levaria
+          a uma tela de entrada onde nenhuma senha funciona. Sair é um POST, e
+          não um link: um GET que encerra sessão é disparado por qualquer
+          <img> dentro de um e-mail. */}
+      {process.env.APP_PASSWORD_HASH ? (
+        <form action={sair}>
+          <button type="submit" className="sair">
+            Sair
+          </button>
+        </form>
+      ) : null}
     </div>
   );
 }
