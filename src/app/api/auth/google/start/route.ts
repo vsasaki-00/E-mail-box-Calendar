@@ -16,6 +16,7 @@ export async function GET(request: Request) {
   // `?write=1` pede os escopos de ESCRITA (fase 4). Sem o parametro, o
   // fluxo continua sendo o de leitura — escrita nunca acontece por padrao.
   const pedeEscrita = new URL(request.url).searchParams.get('write') === '1';
+  const contaSugerida = new URL(request.url).searchParams.get('conta')?.trim() || undefined;
   let config;
   try {
     config = googleOAuthConfigFromEnv();
@@ -47,7 +48,11 @@ export async function GET(request: Request) {
     state,
     codeChallenge: challenge,
     write: pedeEscrita,
-    loginHint: usuario.email !== 'owner@local' ? usuario.email : undefined,
+    // `?conta=` vem da fila de reconexao: leva a tela do Google ja apontando
+    // para a caixa certa, em vez de fazer voce achar a conta na lista a cada
+    // reconexao. E so uma sugestao — o provedor continua exigindo que VOCE
+    // escolha e autorize, que e o ponto do OAuth.
+    loginHint: contaSugerida ?? (usuario.email !== 'owner@local' ? usuario.email : undefined),
   });
 
   return NextResponse.redirect(url);

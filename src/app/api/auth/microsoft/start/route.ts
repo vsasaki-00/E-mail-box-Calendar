@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   // `?write=1` pede os escopos de ESCRITA (fase 4). Sem o parametro, o
   // fluxo continua sendo o de leitura — escrita nunca acontece por padrao.
   const pedeEscrita = new URL(request.url).searchParams.get('write') === '1';
+  const contaSugerida = new URL(request.url).searchParams.get('conta')?.trim() || undefined;
   let config;
   try {
     config = microsoftOAuthConfigFromEnv();
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
     codeChallenge: challenge,
     write: pedeEscrita,
     tenant: config.tenant,
+    loginHint: contaSugerida,
   });
 
   return NextResponse.redirect(url);

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { BotaoDesconectar, BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
+import { BotaoDesconectarTodas, FilaReconexao } from './reconexao';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
 
@@ -82,6 +83,8 @@ export default async function PaginaConexoes() {
       </header>
 
       <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
+        <FilaReconexao jaConectados={conexoes.map((c) => c.accountEmail)} />
+
         <section className="card">
           <h2>Conectar uma conta</h2>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -130,7 +133,16 @@ export default async function PaginaConexoes() {
             }}
           >
             <h2>Contas conectadas</h2>
-            <BotaoSincronizarTodas connectionIds={conexoes.map((c) => c.id)} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <BotaoSincronizarTodas connectionIds={conexoes.map((c) => c.id)} />
+              <BotaoDesconectarTodas
+                contas={conexoes.map((c) => ({
+                  id: c.id,
+                  accountEmail: c.accountEmail,
+                  provider: c.provider,
+                }))}
+              />
+            </div>
           </div>
           {conexoes.length === 0 ? (
             <p className="vazio">Nenhuma conta conectada ainda.</p>

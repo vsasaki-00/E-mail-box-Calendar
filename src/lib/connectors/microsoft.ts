@@ -158,6 +158,8 @@ export function buildMicrosoftAuthUrl(params: {
   tenant?: string;
   /** Pedir escopos de ESCRITA. Falso por padrao. */
   write?: boolean;
+  /** Sugere a conta na tela de login, util ao reconectar varias caixas. */
+  loginHint?: string;
 }): string {
   const tenant = params.tenant || 'common';
   const url = new URL(`${MICROSOFT_TOKEN_ENDPOINT_BASE}/${tenant}/oauth2/v2.0/authorize`);
@@ -177,6 +179,9 @@ export function buildMicrosoftAuthUrl(params: {
   // conectar a conta pessoal. Descoberto no primeiro uso real (o Google
   // tinha o mesmo defeito, com `select_account` na mesma solucao).
   url.searchParams.set('prompt', 'select_account');
+  // Sugestao, nao imposicao: `select_account` continua mostrando a lista, e
+  // a conta sugerida aparece pre-selecionada.
+  if (params.loginHint) url.searchParams.set('login_hint', params.loginHint);
   return url.toString();
 }
 
