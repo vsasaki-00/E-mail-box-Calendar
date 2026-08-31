@@ -1,0 +1,11 @@
+# Autorizacao de build scripts.
+#
+# O mesmo bloco existe em `package.json` (`pnpm.onlyBuiltDependencies`), e a
+# duplicacao e proposital: versoes diferentes do pnpm leem de lugares
+# diferentes. Sem isto, o `prisma generate` do postinstall e BLOQUEADO em
+# silencio e o app quebra so depois, com um erro que nao aponta para a causa.
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - prisma
+  - esbuild

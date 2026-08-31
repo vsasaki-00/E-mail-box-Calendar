@@ -100,6 +100,18 @@ passo "Instalando dependências"
 pnpm install --silent
 verde "✓ dependências instaladas"
 
+# Rede de seguranca: versoes recentes do pnpm BLOQUEIAM build scripts por
+# padrao, e o `prisma generate` do postinstall e um deles. Quando isso
+# acontece, o app so quebra bem depois, com um erro que nao aponta para a
+# causa. Gerar aqui de forma explicita torna o resultado o mesmo em
+# qualquer versao — e e barato o suficiente para rodar sempre.
+if ! pnpm exec prisma generate >/dev/null 2>&1; then
+  vermelho "✗ falhou ao gerar o cliente do Prisma"
+  printf '  rode para ver o erro:  pnpm exec prisma generate\n'
+  exit 1
+fi
+verde "✓ cliente do banco gerado"
+
 # ---------------------------------------------------------------------------
 # Banco
 # ---------------------------------------------------------------------------
