@@ -104,16 +104,37 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
 
   const resultados: ResumoRecurso[] = [];
 
-  for (const estado of estados) {
-    const resultado = await runSync(estado, new Date());
+  // UM recurso por requisicao. Rodar e-mail e calendario juntos somava dois
+  // ciclos de busca MAIS duas gravacoes no banco dentro do mesmo limite de
+  // funcao — e era o que ainda estourava o tempo. O navegador repete, entao
+  // dividir aqui nao perde nada alem de uma ida e volta.
+  // `nextRunAt` nulo = nunca agendado, entao vai na frente.
+  const quando = (d: Date | null) => (d ? d.getTime() : 0);
+  const [primeiro, ...resto] = [...estados].sort(
+    (a, b) => quando(a.nextRunAt) - quando(b.nextRunAt),
+  );
 
+  if (primeiro) {
+    const resultado = await runSync(primeiro, new Date());
     // PARTIAL significa "sobrou trabalho", e e o que manda o navegador pedir
     // a proxima volta.
     resultados.push({
-      resource: estado.resource,
+      resource: primeiro.resource,
       outcome: resultado.outcome,
       counts: resultado.counts,
       ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
+    });
+  }
+
+  // Os demais nao rodaram agora. Reportar PARTIAL faz o navegador voltar
+  // para eles — mas so quando ainda ha o que fazer, senao o laco nunca
+  // terminaria.
+  for (const estado of resto) {
+    const pendente = estado.pageToken !== null || estado.lastSyncAt === null;
+    resultados.push({
+      resource: estado.resource,
+      outcome: pendente ? 'PARTIAL' : 'SUCCESS',
+      counts: { created: 0, updated: 0, deleted: 0 },
     });
   }
 

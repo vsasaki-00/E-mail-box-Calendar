@@ -22,9 +22,12 @@ interface Resumo {
   error?: string;
 }
 
+/** Voltas no maximo por clique, contra laco que nao termina. */
+const MAX_VOLTAS = 60;
+
 type Estado =
   | { tipo: 'ocioso' }
-  | { tipo: 'rodando' }
+  | { tipo: 'rodando'; feitas: number; restantes: number }
   | { tipo: 'concluido'; texto: string }
   | { tipo: 'erro'; mensagem: string };
 
@@ -32,7 +35,46 @@ export function BotaoTriar({ pendentes }: { pendentes: number }) {
   const [estado, setEstado] = useState<Estado>({ tipo: 'ocioso' });
 
   async function executar() {
-    setEstado({ tipo: 'rodando' });
+    setEstado({ tipo: 'rodando', feitas: 0, restantes: pendentes });
+    let feitas = 0;
+
+    // Cada volta classifica UMA caixa, em lote pequeno. Somar tudo numa
+    // requisicao so estourava o limite da funcao.
+    for (let volta = 1; volta <= MAX_VOLTAS; volta += 1) {
+      const passo = await umaVolta();
+      if (passo.erro) {
+        setEstado({ tipo: 'erro', mensagem: passo.erro });
+        return;
+      }
+      feitas += passo.processadas;
+      setEstado({ tipo: 'rodando', feitas, restantes: passo.restantes });
+
+      if (passo.concluido) break;
+      if (passo.processadas === 0) {
+        // Nada avancou e o servidor nao declarou fim: parar e dizer, em vez
+        // de girar contra uma caixa que nunca progride.
+        setEstado({
+          tipo: 'erro',
+          mensagem:
+            feitas > 0
+              ? `${feitas} classificadas; o restante não avançou. Tente de novo.`
+              : 'Nada classificado. Verifique se há mensagens novas e se os perfis das caixas estão preenchidos.',
+        });
+        return;
+      }
+    }
+
+    setEstado({ tipo: 'concluido', texto: `${feitas} classificadas` });
+    window.location.reload();
+  }
+
+  async function umaVolta(): Promise<{
+    processadas: number;
+    restantes: number;
+    concluido: boolean;
+    erro?: string;
+  }> {
+    const vazio = { processadas: 0, restantes: 0, concluido: true };
     try {
       const resposta = await fetch('/api/triage/run', { method: 'POST' });
 
@@ -40,55 +82,35 @@ export function BotaoTriar({ pendentes }: { pendentes: number }) {
       // responde é ela, com uma página de texto. Ler direto como JSON
       // trocaria a mensagem real por um erro de parse.
       const texto = await resposta.text();
-      let corpo: { results?: Resumo[]; error?: string };
+      let corpo: { results?: Resumo[]; error?: string; pendentes?: number; concluido?: boolean };
       try {
-        corpo = JSON.parse(texto) as { results?: Resumo[]; error?: string };
+        corpo = JSON.parse(texto) as typeof corpo;
       } catch {
         const resumo = texto.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-        setEstado({
-          tipo: 'erro',
-          mensagem: `Servidor respondeu HTTP ${resposta.status}: ${resumo || '(resposta vazia)'}`,
-        });
-        return;
+        return {
+          ...vazio,
+          erro: `Servidor respondeu HTTP ${resposta.status}: ${resumo || '(resposta vazia)'}`,
+        };
       }
 
       if (!resposta.ok) {
-        setEstado({ tipo: 'erro', mensagem: corpo.error ?? `Falha (HTTP ${resposta.status})` });
-        return;
+        return { ...vazio, erro: corpo.error ?? `Falha (HTTP ${resposta.status})` };
       }
 
       const resultados = corpo.results ?? [];
-      const total = resultados.reduce((soma, r) => soma + (r.processed ?? 0), 0);
-      const erros = resultados.filter((r) => r.error);
+      const comErro = resultados.find((r) => r.error);
+      if (comErro) return { ...vazio, erro: comErro.error };
 
-      if (erros.length > 0) {
-        setEstado({
-          tipo: 'erro',
-          mensagem: `${total} classificadas; ${erros.length} caixa(s) com erro: ${erros[0]?.error}`,
-        });
-        return;
-      }
+      const pulada = resultados.find((r) => r.skipped)?.skipped;
+      if (pulada) return { ...vazio, erro: `Interrompido — ${pulada}.` };
 
-      if (total === 0) {
-        // Zero com sucesso tem causa, e ela precisa aparecer: sem isso o
-        // botão pareceria não fazer nada.
-        const motivo = resultados.find((r) => r.skipped)?.skipped;
-        setEstado({
-          tipo: 'erro',
-          mensagem: motivo
-            ? `Nada classificado — ${motivo}.`
-            : 'Nada classificado. Verifique se há mensagens novas e se os perfis das caixas estão preenchidos.',
-        });
-        return;
-      }
-
-      setEstado({ tipo: 'concluido', texto: `${total} classificadas` });
-      window.location.reload();
+      return {
+        processadas: resultados.reduce((soma, r) => soma + (r.processed ?? 0), 0),
+        restantes: corpo.pendentes ?? 0,
+        concluido: corpo.concluido === true,
+      };
     } catch (erro) {
-      setEstado({
-        tipo: 'erro',
-        mensagem: erro instanceof Error ? erro.message : 'Falha de rede',
-      });
+      return { ...vazio, erro: erro instanceof Error ? erro.message : 'Falha de rede' };
     }
   }
 
@@ -110,7 +132,7 @@ export function BotaoTriar({ pendentes }: { pendentes: number }) {
         }}
       >
         {estado.tipo === 'rodando'
-          ? 'Classificando…'
+          ? `Classificando… ${estado.feitas} de ${estado.feitas + estado.restantes}`
           : estado.tipo === 'concluido'
             ? `✓ ${estado.texto}`
             : `Triar ${pendentes > 0 ? `${pendentes} mensagens` : 'agora'}`}

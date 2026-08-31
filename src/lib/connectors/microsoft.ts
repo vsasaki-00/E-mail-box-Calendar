@@ -74,7 +74,7 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
  * Agora o conector devolve o controle cedo, carregando a URL de continuacao
  * — nada e refeito e nada e descartado.
  */
-const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 5);
+const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 2);
 
 /**
  * Orcamento de TEMPO por chamada de fetch, em ms.
@@ -89,7 +89,11 @@ function orcamentoMs(): number {
   // Lido a cada chamada, nao no carregamento do modulo: o worker local pode
   // usar um valor generoso sem rebuild, e o teste consegue exercitar o caso
   // do orcamento esgotado.
-  return Number(process.env.GRAPH_RUN_BUDGET_MS ?? 12_000);
+  // 6s, e nao 12s: o orcamento cobre so a BUSCA no Graph. Depois dela vem a
+  // gravacao no Postgres, item a item, que numa pagina cheia custa mais que
+  // a propria busca. Foi o que continuou estourando a funcao mesmo com o
+  // orcamento de 12s.
+  return Number(process.env.GRAPH_RUN_BUDGET_MS ?? 6_000);
 }
 const MAIL_PAGE_SIZE = 50;
 const CALENDAR_PAGE_SIZE = 100;

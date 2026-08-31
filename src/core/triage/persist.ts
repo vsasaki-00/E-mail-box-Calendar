@@ -156,11 +156,13 @@ export async function triageConnection(
   connection: Connection,
   userId: string,
   model?: TriageModel,
+  /** Teto de mensagens nesta execucao. Menor em ambiente com limite de tempo. */
+  limite?: number,
 ): Promise<TriageConnectionSummary> {
   const base = { connectionId: connection.id, accountEmail: connection.accountEmail };
 
   try {
-    const inputs = await loadUntriagedInputs(connection.id, userId);
+    const inputs = await loadUntriagedInputs(connection.id, userId, limite);
     if (inputs.length === 0) {
       return { ...base, processed: 0, decidedByRule: 0, decidedByModel: 0, missing: 0, skippedUserOverride: 0 };
     }

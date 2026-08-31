@@ -34,13 +34,43 @@ export async function POST() {
     orderBy: { createdAt: 'asc' },
   });
 
-  // Sequencial de proposito: cada conexao tem seu proprio contexto de caixa
-  // e seu proprio prompt de sistema em cache. Paralelizar aqui trocaria
-  // cache quente por concorrencia que a API vai limitar de qualquer jeito.
-  const resumos = [];
+  // UMA caixa por requisicao, em lote pequeno.
+  //
+  // Classificar as cinco caixas de uma vez estourava o limite da funcao
+  // (FUNCTION_INVOCATION_TIMEOUT em producao): sao chamadas ao modelo em
+  // sequencia, cada uma de segundos. O cliente repete enquanto sobrar
+  // trabalho, e o progresso aparece na tela a cada volta.
+  //
+  // Sequencial dentro da caixa continua de proposito: cada conexao tem seu
+  // proprio contexto e seu prompt de sistema em cache; paralelizar trocaria
+  // cache quente por concorrencia que a API limita de qualquer jeito.
+  const LOTE = Number(process.env.TRIAGE_BATCH_PER_RUN ?? 25);
+
+  // Escolhe a primeira caixa que ainda tem mensagem sem classificacao.
+  let alvo = null;
+  let restantes = 0;
   for (const conexao of conexoes) {
-    resumos.push(await triageConnection(conexao, usuario.id));
+    const pendentes = await prisma.message.count({
+      where: {
+        connectionId: conexao.id,
+        unifiedItem: { userId: usuario.id, triage: null },
+        mailbox: { includeInUnified: true },
+      },
+    });
+    if (pendentes === 0) continue;
+    if (!alvo) alvo = conexao;
+    restantes += pendentes;
   }
 
-  return NextResponse.json({ results: resumos });
+  if (!alvo) {
+    return NextResponse.json({ results: [], pendentes: 0, concluido: true });
+  }
+
+  const resumo = await triageConnection(alvo, usuario.id, undefined, LOTE);
+
+  return NextResponse.json({
+    results: [resumo],
+    pendentes: Math.max(0, restantes - resumo.processed),
+    concluido: restantes - resumo.processed <= 0,
+  });
 }

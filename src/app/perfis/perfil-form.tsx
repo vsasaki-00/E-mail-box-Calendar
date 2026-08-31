@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   BUSINESS_CONTEXTS,
   BUSINESS_DEFAULTS,
@@ -66,6 +67,7 @@ const campo = {
 const rotulo = { fontSize: 12, color: 'var(--muted)' } as const;
 
 export function PerfilForm({ inicial }: { inicial: PerfilInicial }) {
+  const router = useRouter();
   const [estado, acao, enviando] = useActionState<SalvarPerfilResultado | null, FormData>(
     salvarPerfil.bind(null, inicial.connectionId),
     null,
@@ -74,6 +76,58 @@ export function PerfilForm({ inicial }: { inicial: PerfilInicial }) {
   const [negocio, setNegocio] = useState(inicial.businessName);
   const [calibracao, setCalibracao] = useState(inicial.calibration);
   const [urgentes, setUrgentes] = useState(inicial.urgentKeywords);
+
+  /*
+   * Depois de salvar, recarrega os dados do servidor.
+   *
+   * O React 19 RESETA o formulario quando a Server Action termina. Num campo
+   * controlado isso zera o valor no DOM sem mudar o estado — e, como o
+   * estado nao mudou, nenhuma renderizacao devolve o valor para a tela. O
+   * select de negocio voltava para "— selecione —" com o dado ja gravado.
+   *
+   * `router.refresh()` traz as props novas do servidor, e a sincronizacao
+   * abaixo as aplica ao estado. Recarregar a pagina inteira resolveria
+   * tambem, mas jogaria fora o que estivesse sendo editado nos outros
+   * perfis da mesma tela.
+   */
+  useEffect(() => {
+    if (estado?.ok) router.refresh();
+  }, [estado, router]);
+
+  /*
+   * Sincroniza o estado local quando o servidor manda valores novos.
+   *
+   * `useState(props)` so le a prop na PRIMEIRA renderizacao. Depois de
+   * salvar, a Server Action revalida a rota e as props chegam atualizadas —
+   * mas os campos controlados continuavam presos ao valor antigo e o select
+   * de negocio voltava para "— selecione —". O dado estava gravado; a tela
+   * e que dizia o contrario, o que e pior que nao salvar: mina a confianca
+   * em tudo que a tela mostra.
+   *
+   * Atualizacao de estado durante a renderizacao, comparando com a prop
+   * anterior: e o padrao recomendado pelo React para ajustar estado quando
+   * a prop muda, e evita o efeito que piscaria o valor errado antes.
+   */
+  const [propsAnteriores, setPropsAnteriores] = useState({
+    businessName: inicial.businessName,
+    calibration: inicial.calibration,
+    urgentKeywords: inicial.urgentKeywords,
+  });
+
+  if (
+    propsAnteriores.businessName !== inicial.businessName ||
+    propsAnteriores.calibration !== inicial.calibration ||
+    propsAnteriores.urgentKeywords !== inicial.urgentKeywords
+  ) {
+    setPropsAnteriores({
+      businessName: inicial.businessName,
+      calibration: inicial.calibration,
+      urgentKeywords: inicial.urgentKeywords,
+    });
+    setNegocio(inicial.businessName);
+    setCalibracao(inicial.calibration);
+    setUrgentes(inicial.urgentKeywords);
+  }
 
   /**
    * Trocar o negócio aplica os defaults daquele contexto — mas só sobre
