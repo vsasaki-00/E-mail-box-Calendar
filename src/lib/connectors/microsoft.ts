@@ -62,8 +62,19 @@ export const MICROSOFT_WRITE_SCOPES = [
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
-/** Paginas por container numa unica execucao, contra loop infinito. */
-const MAX_PAGES_PER_CONTAINER = 60;
+/**
+ * Paginas por container numa unica execucao.
+ *
+ * Era 60 — dimensionado para o worker, que roda sem prazo. Numa funcao
+ * serverless de 60s isso significava ate 3.000 mensagens por pasta em uma
+ * invocacao: a plataforma cortava a funcao no meio e devolvia uma pagina de
+ * texto em vez de JSON. Foi o que travou as duas primeiras caixas Outlook
+ * reais deste projeto.
+ *
+ * Agora o conector devolve o controle cedo, carregando a URL de continuacao
+ * — nada e refeito e nada e descartado.
+ */
+const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 8);
 const MAIL_PAGE_SIZE = 50;
 const CALENDAR_PAGE_SIZE = 100;
 
@@ -319,6 +330,11 @@ export const microsoftConnector: Connector = {
     // Recurso multi-container (uma pasta = um container, cada uma com seu
     // proprio deltaLink): mesmo padrao usado no calendario. Ver fetchEvents.
     const cursorAnterior = parseContainerCursor(_options.cursor);
+    // Retomada em andamento vem no pageToken; o cursor e o ponto de partida
+    // de uma execucao nova.
+    const inicial = _options.pageToken
+      ? parseContainerCursor(_options.pageToken)
+      : cursorAnterior;
     const pastas = await microsoftConnector.listMailboxes(ctx);
     // So sincroniza as pastas padrao (inbox/sentitems/drafts/archive) + as que
     // ja tinham cursor de uma execucao anterior (o usuario pode ter marcado
@@ -332,12 +348,26 @@ export const microsoftConnector: Connector = {
     const itens: RawMessage[] = [];
     const removidos: string[] = [];
     const tokens: Record<string, string> = {};
+    let incompleto = false;
 
     for (const pasta of alvo) {
-      const resultado = await fetchMessagesDaPasta(ctx, pasta.providerId, cursorAnterior[pasta.providerId]);
+      const resultado = await fetchMessagesDaPasta(ctx, pasta.providerId, inicial[pasta.providerId]);
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
       if (resultado.deltaLink) tokens[pasta.providerId] = resultado.deltaLink;
+      if (resultado.incompleto) incompleto = true;
+    }
+
+    // Sobrou pagina: o mapa vai como `nextPageToken`, e nao como `cursor`.
+    // O motor guarda pageToken a cada execucao mas so promove o cursor no
+    // fim — que e o certo: um cursor gravado no meio faria a proxima
+    // execucao pular as paginas restantes para sempre.
+    if (incompleto) {
+      return {
+        items: itens,
+        deletedProviderIds: removidos,
+        nextPageToken: serializeContainerCursor(tokens),
+      };
     }
 
     return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
@@ -347,20 +377,32 @@ export const microsoftConnector: Connector = {
     const cursorAnterior = parseContainerCursor(options.cursor);
     const calendarios = await microsoftConnector.listCalendars(ctx);
 
+    const inicial = options.pageToken ? parseContainerCursor(options.pageToken) : cursorAnterior;
+
     const itens: RawEvent[] = [];
     const removidos: string[] = [];
     const tokens: Record<string, string> = {};
+    let incompleto = false;
 
     for (const calendario of calendarios) {
       const resultado = await fetchEventsDoCalendario(
         ctx,
         calendario.providerId,
-        cursorAnterior[calendario.providerId],
+        inicial[calendario.providerId],
         options.window,
       );
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
       if (resultado.deltaLink) tokens[calendario.providerId] = resultado.deltaLink;
+      if (resultado.incompleto) incompleto = true;
+    }
+
+    if (incompleto) {
+      return {
+        items: itens,
+        deletedProviderIds: removidos,
+        nextPageToken: serializeContainerCursor(tokens),
+      };
     }
 
     return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
@@ -548,7 +590,7 @@ async function fetchMessagesDaPasta(
   ctx: ConnectorContext,
   folderId: string,
   deltaLinkAnterior: string | undefined,
-): Promise<{ itens: RawMessage[]; removidos: string[]; deltaLink?: string }> {
+): Promise<{ itens: RawMessage[]; removidos: string[]; deltaLink?: string; incompleto?: boolean }> {
   const itens: RawMessage[] = [];
   const removidos: string[] = [];
 
@@ -582,11 +624,13 @@ async function fetchMessagesDaPasta(
     paginas += 1;
   } while (url && paginas < MAX_PAGES_PER_CONTAINER);
 
+  // Bateu o teto com pagina pendente: devolve o `nextLink` como cursor da
+  // pasta. Ele e uma URL de continuacao opaca, consumida exatamente como o
+  // deltaLink na proxima execucao — entao retomar e exato, sem repetir nem
+  // pular mensagem. Lancar aqui, como antes, jogava fora tudo que ja tinha
+  // sido buscado nesta execucao.
   if (url) {
-    throw new ConnectorError(
-      'TRANSIENT',
-      `Pasta ${folderId} excedeu ${MAX_PAGES_PER_CONTAINER} paginas numa execucao`,
-    );
+    return { itens, removidos, deltaLink: url, incompleto: true };
   }
 
   return { itens, removidos, deltaLink };
@@ -601,7 +645,7 @@ async function fetchEventsDoCalendario(
   calendarId: string,
   deltaLinkAnterior: string | undefined,
   janela: FetchOptions['window'],
-): Promise<{ itens: RawEvent[]; removidos: string[]; deltaLink?: string }> {
+): Promise<{ itens: RawEvent[]; removidos: string[]; deltaLink?: string; incompleto?: boolean }> {
   const itens: RawEvent[] = [];
   const removidos: string[] = [];
 
@@ -645,10 +689,7 @@ async function fetchEventsDoCalendario(
   } while (url && paginas < MAX_PAGES_PER_CONTAINER);
 
   if (url) {
-    throw new ConnectorError(
-      'TRANSIENT',
-      `Calendario ${calendarId} excedeu ${MAX_PAGES_PER_CONTAINER} paginas numa execucao`,
-    );
+    return { itens, removidos, deltaLink: url, incompleto: true };
   }
 
   return { itens, removidos, deltaLink };

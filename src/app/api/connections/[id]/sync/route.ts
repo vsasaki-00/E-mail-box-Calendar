@@ -15,8 +15,16 @@ import { getConnector } from '@/lib/connectors/registry';
 // 60s e o teto seguro do plano Hobby da Vercel.
 export const maxDuration = 60;
 
-/** Prazo interno, com folga para a resposta sair antes do corte da funcao. */
-const PRAZO_MS = 40_000;
+/**
+ * Orcamento por requisicao. Bem abaixo dos 60s de propriedade: se a funcao
+ * for cortada pela plataforma, quem responde e ela, com uma pagina de TEXTO
+ * — e o cliente perde a mensagem de erro real. Terminar cedo e devolver
+ * PARTIAL e sempre melhor que ser interrompido.
+ */
+const PRAZO_MS = 25_000;
+
+/** Estimativa grosseira do custo de mais uma pagina, para nao comecar o que nao cabe. */
+const MARGEM_PAGINA_MS = 12_000;
 
 interface ResumoRecurso {
   resource: string;
@@ -26,6 +34,21 @@ interface ResumoRecurso {
 }
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    return await sincronizar(params);
+  } catch (error) {
+    // Rede de seguranca: `runSync` ja transforma falha de conector em
+    // resultado FAILED, mas qualquer coisa fora dele (banco, keyring,
+    // registry) escaparia como 500 sem corpo JSON — e o botao mostraria um
+    // erro de parse no lugar do motivo.
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Falha inesperada no sync' },
+      { status: 500 },
+    );
+  }
+}
+
+async function sincronizar(params: Promise<{ id: string }>): Promise<NextResponse> {
   const { id } = await params;
   const inicio = Date.now();
 
@@ -88,7 +111,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
     // Continua paginando enquanto houver paginas E prazo. Um corte aqui
     // nunca perde nada: o pageToken ja esta persistido pagina a pagina.
-    while (resultado.outcome === 'PARTIAL' && Date.now() - inicio < PRAZO_MS) {
+    // Nao COMECA uma pagina que provavelmente nao termina dentro do prazo.
+    while (resultado.outcome === 'PARTIAL' && Date.now() - inicio + MARGEM_PAGINA_MS < PRAZO_MS) {
       const atual = await prisma.syncState.findUnique({
         where: { id: estado.id },
         include: { connection: true },

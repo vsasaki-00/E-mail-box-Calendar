@@ -51,7 +51,23 @@ async function sincronizarConexao(
       if (resposta.status === 401) {
         return { itens, completo: false, erro: 'Sessão expirada — recarregue a página e entre de novo.' };
       }
-      corpo = (await resposta.json()) as RespostaSync;
+
+      // Texto primeiro, JSON depois. Quando a função quebra ou estoura o
+      // tempo, quem responde é a plataforma, com uma página de texto — e
+      // `.json()` direto trocava essa mensagem por "is not valid JSON",
+      // escondendo justamente o que explicava a falha.
+      const texto = await resposta.text();
+      try {
+        corpo = JSON.parse(texto) as RespostaSync;
+      } catch {
+        const resumo = texto.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+        return {
+          itens,
+          completo: false,
+          erro: `Servidor respondeu HTTP ${resposta.status}: ${resumo || '(resposta vazia)'}`,
+        };
+      }
+
       if (!resposta.ok) {
         return { itens, completo: false, erro: corpo.error ?? `Falha (HTTP ${resposta.status})` };
       }
