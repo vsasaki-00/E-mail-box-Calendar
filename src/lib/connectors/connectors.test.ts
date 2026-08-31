@@ -88,6 +88,18 @@ describe('buildMicrosoftAuthUrl', () => {
     expect(url).toContain('/common/oauth2/v2.0/authorize');
   });
 
+  it('forca a escolha de conta, senao o SSO reusa a sessao corporativa', () => {
+    const url = new URL(
+      buildMicrosoftAuthUrl({
+        clientId: 'cliente',
+        redirectUri: 'http://localhost:3000/cb',
+        state: 'estado',
+        codeChallenge: 'desafio',
+      }),
+    );
+    expect(url.searchParams.get('prompt')).toBe('select_account');
+  });
+
   it('pede offline_access para conseguir renovar o token', () => {
     const url = new URL(
       buildMicrosoftAuthUrl({

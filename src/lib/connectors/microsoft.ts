@@ -141,6 +141,11 @@ export function buildMicrosoftAuthUrl(params: {
   url.searchParams.set('state', params.state);
   url.searchParams.set('code_challenge', params.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
+  // Sem isto o SSO da Microsoft reusa a sessao ativa do navegador e pula a
+  // escolha de conta — quem tem sessao corporativa aberta nunca consegue
+  // conectar a conta pessoal. Descoberto no primeiro uso real (o Google
+  // tinha o mesmo defeito, com `select_account` na mesma solucao).
+  url.searchParams.set('prompt', 'select_account');
   return url.toString();
 }
 
