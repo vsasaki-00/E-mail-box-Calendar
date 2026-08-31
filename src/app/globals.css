@@ -1,5 +1,7 @@
 :root {
-  color-scheme: light dark;
+  /* Fixo em claro, de propósito: independe do tema do sistema operacional
+     do usuário, então não há bloco @media (prefers-color-scheme: dark). */
+  color-scheme: light;
 
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -11,20 +13,6 @@
   --warn: #a76500;
   --crit: #c0341d;
   --radius: 10px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #101215;
-    --surface: #181b20;
-    --border: #2a2f36;
-    --text: #e9ecef;
-    --muted: #9aa3ae;
-    --accent: #818cf8;
-    --ok: #4ade80;
-    --warn: #fbbf24;
-    --crit: #f87171;
-  }
 }
 
 * {
