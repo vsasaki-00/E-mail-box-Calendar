@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/db';
 import { findConflicts, findFocusWindows, type ConflictCandidate } from './conflicts';
 import type { Conflict } from './conflicts';
+import { computeSla, mostOverdue, type AwaitingReply, type MailboxSla } from './sla';
+import { refreshAlerts } from '@/core/alerts/refresh';
 
 /**
  * Agregacoes da Torre de Controle. Ver docs/05-torre-de-controle.md
@@ -51,6 +53,27 @@ export interface TriageSummary {
   pending: number;
 }
 
+/**
+ * Resumo do painel financeiro (fase 5B).
+ *
+ * `withoutAmount` existe pelo mesmo motivo de `pending` na triagem: um
+ * total que engole as cobrancas sem valor identificado mentiria.
+ */
+export interface BillsSummary {
+  open: number;
+  totalOpenCents: number;
+  withoutAmount: number;
+  overdue: number;
+  dueSoon: number;
+}
+
+/** Resumo dos rascunhos (fase 5D). Nenhum deles foi enviado. */
+export interface DraftsSummary {
+  proposed: number;
+  approved: number;
+  edited: number;
+}
+
 /** Um compromisso do dia ja colapsado: uma linha por reuniao, nao por copia. */
 export interface TimelineEntry {
   id: string;
@@ -73,6 +96,12 @@ export interface ControlTowerData {
   focusWindows: { start: Date; end: Date; minutes: number }[];
   backlog: TriageBacklog;
   triage: TriageSummary;
+  /** Prazo de resposta por caixa. Substitui "nao lidos" como metrica. */
+  sla: MailboxSla[];
+  /** Os itens que mais precisam de voce agora. */
+  overdueItems: (AwaitingReply & { hours: number; overdue: boolean })[];
+  bills: BillsSummary;
+  drafts: DraftsSummary;
   alerts: {
     id: string;
     severity: string;
@@ -159,12 +188,15 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
     events,
     unreadAggregates,
     oldestUnread,
-    alerts,
     triageByCategory,
     needsReplyCount,
     urgentCount,
     lowConfidenceCount,
     pendingTriageCount,
+    awaitingRaw,
+    mailboxProfiles,
+    openBills,
+    draftGroups,
   ] = await Promise.all([
     prisma.connection.findMany({
       where: { userId },
@@ -190,11 +222,6 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
       orderBy: { receivedAt: 'asc' },
       select: { receivedAt: true },
     }),
-    prisma.alert.findMany({
-      where: { userId, acknowledgedAt: null },
-      orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
-      take: 20,
-    }),
     prisma.itemTriage.groupBy({
       by: ['category'],
       where: { userId },
@@ -205,6 +232,35 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
     // Confianca baixa nunca some da lista: e o item que precisa de olho.
     prisma.itemTriage.count({ where: { userId, confidence: { lt: 0.6 } } }),
     prisma.unifiedItem.count({ where: { userId, kind: 'MESSAGE', triage: null } }),
+    // Quem esta esperando resposta sua — a base do SLA.
+    prisma.itemTriage.findMany({
+      where: { userId, needsReply: true },
+      take: 300,
+      select: {
+        unifiedItemId: true,
+        priority: true,
+        unifiedItem: {
+          select: {
+            title: true,
+            occurredAt: true,
+            messages: {
+              take: 1,
+              orderBy: { receivedAt: 'desc' },
+              select: { connectionId: true, fromName: true, fromEmail: true, receivedAt: true },
+            },
+          },
+        },
+      },
+    }),
+    prisma.mailboxProfile.findMany({
+      where: { connection: { userId } },
+      select: { connectionId: true, businessName: true },
+    }),
+    prisma.billExtraction.findMany({
+      where: { userId, status: 'PENDING', isPayable: true },
+      select: { unifiedItemId: true, amountCents: true, dueDate: true, payee: true },
+    }),
+    prisma.draft.groupBy({ by: ['status'], where: { userId }, _count: { _all: true } }),
   ]);
 
   const unreadByConnection = new Map(
@@ -258,11 +314,70 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
     };
   });
 
+  // --- SLA de resposta -----------------------------------------------------
+  const negocioPorConexao = new Map(
+    mailboxProfiles.map((perfil) => [perfil.connectionId, perfil.businessName] as const),
+  );
+  const caixasSla = connections.map((conexao) => ({
+    connectionId: conexao.id,
+    label: conexao.displayName ?? conexao.accountEmail,
+    businessName: negocioPorConexao.get(conexao.id) ?? null,
+  }));
+
+  const awaiting: AwaitingReply[] = awaitingRaw
+    .map((linha): AwaitingReply | null => {
+      const mensagem = linha.unifiedItem.messages[0];
+      if (!mensagem) return null;
+      return {
+        unifiedItemId: linha.unifiedItemId,
+        connectionId: mensagem.connectionId,
+        receivedAt: mensagem.receivedAt,
+        priority: linha.priority,
+        title: linha.unifiedItem.title ?? '(sem assunto)',
+        fromLabel: mensagem.fromName ?? mensagem.fromEmail ?? 'remetente desconhecido',
+      };
+    })
+    .filter((item): item is AwaitingReply => item !== null);
+
+  // --- Cobrancas -----------------------------------------------------------
+  const DIA_MS = 86_400_000;
+  const hojeUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const diasAte = (data: Date | null) =>
+    data === null
+      ? null
+      : Math.round(
+          (Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate()) - hojeUTC) /
+            DIA_MS,
+        );
+
+  const cobrancasComPrazo = openBills.map((cobranca) => ({
+    unifiedItemId: cobranca.unifiedItemId,
+    payee: cobranca.payee,
+    amountCents: cobranca.amountCents,
+    daysUntilDue: diasAte(cobranca.dueDate),
+  }));
+  const prazos = cobrancasComPrazo.map((c) => c.daysUntilDue);
+
   // Expediente usado para as janelas de foco.
   const workStart = new Date(dayStart);
   workStart.setHours(9, 0, 0, 0);
   const workEnd = new Date(dayStart);
   workEnd.setHours(18, 0, 0, 0);
+
+  const conflicts = findConflicts(candidates);
+  const sla = computeSla(awaiting, caixasSla, now);
+
+  // Os alertas sao recalculados a partir EXATAMENTE deste estado, e so
+  // depois lidos. Uma lista de alertas que discorda dos numeros ao lado
+  // dela e pior do que nao ter alerta nenhum. Condicao que deixou de valer
+  // some sozinha aqui; reconhecimento seu sobrevive.
+  await refreshAlerts(userId, { connections: health, conflicts, sla, bills: cobrancasComPrazo });
+
+  const alerts = await prisma.alert.findMany({
+    where: { userId, acknowledgedAt: null },
+    orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
+    take: 20,
+  });
 
   return {
     generatedAt: now,
@@ -272,7 +387,7 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
       candidates,
       new Map(connections.map((connection) => [connection.id, connection.color])),
     ),
-    conflicts: findConflicts(candidates),
+    conflicts,
     focusWindows: findFocusWindows(candidates, workStart, workEnd),
     backlog: {
       totalUnread: [...unreadByConnection.values()].reduce((sum, n) => sum + n, 0),
@@ -292,6 +407,22 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
         triageByCategory.find((linha) => linha.category === 'COBRANCA')?._count._all ?? 0,
       lowConfidence: lowConfidenceCount,
       pending: pendingTriageCount,
+    },
+    sla,
+    overdueItems: mostOverdue(awaiting, caixasSla, 5, now),
+    bills: {
+      open: openBills.length,
+      // Cobranca sem valor identificado NAO entra no total: somar zero a
+      // esconderia, e o painel diria um numero menor do que a realidade.
+      totalOpenCents: openBills.reduce((soma, c) => soma + (c.amountCents ?? 0), 0),
+      withoutAmount: openBills.filter((c) => c.amountCents === null).length,
+      overdue: prazos.filter((d) => d !== null && d < 0).length,
+      dueSoon: prazos.filter((d) => d !== null && d >= 0 && d <= 3).length,
+    },
+    drafts: {
+      proposed: draftGroups.find((g) => g.status === 'PROPOSED')?._count._all ?? 0,
+      approved: draftGroups.find((g) => g.status === 'APPROVED')?._count._all ?? 0,
+      edited: draftGroups.find((g) => g.status === 'EDITED')?._count._all ?? 0,
     },
     alerts: alerts.map((alert) => ({
       id: alert.id,

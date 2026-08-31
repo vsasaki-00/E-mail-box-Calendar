@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { AlertaLinha } from './alerta-linha';
 import { loadControlTower, type ControlTowerData } from '@/core/metrics/control-tower';
 
 /**
@@ -85,12 +86,38 @@ function Painel({ dados }: { dados: ControlTowerData }) {
           <h2>
             <a href="/financeiro" style={{ color: 'inherit' }}>Cobranças a pagar</a>
           </h2>
-          <div className="metric">{dados.triage.cobrancas}</div>
-          <div className="metric-label">
-            {dados.triage.cobrancas === 0
-              ? 'nenhuma detectada'
-              : 'faturas, boletos e assinaturas'}
+          <div
+            className="metric"
+            style={{ color: dados.bills.overdue > 0 ? 'var(--crit)' : undefined }}
+          >
+            {dados.bills.open > 0
+              ? (dados.bills.totalOpenCents / 100).toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })
+              : dados.triage.cobrancas > 0
+                ? '—'
+                : 'R$ 0,00'}
           </div>
+          <div className="metric-label">
+            {dados.bills.open > 0
+              ? `${dados.bills.open} em aberto${dados.bills.overdue > 0 ? `, ${dados.bills.overdue} vencida${dados.bills.overdue > 1 ? 's' : ''}` : ''}`
+              : dados.triage.cobrancas > 0
+                ? `${dados.triage.cobrancas} detectada${dados.triage.cobrancas > 1 ? 's' : ''}, nenhuma extraída ainda`
+                : 'nenhuma detectada'}
+          </div>
+          {dados.bills.withoutAmount > 0 && (
+            <p className="sub" style={{ marginTop: 8 }}>
+              {/* O total nao pode engolir o que nao foi identificado. */}
+              {dados.bills.withoutAmount} sem valor identificado —{' '}
+              <strong>não estão nesse total</strong>.
+            </p>
+          )}
+          {dados.bills.dueSoon > 0 && (
+            <p className="sub" style={{ marginTop: 4 }}>
+              {dados.bills.dueSoon} vencendo nos próximos 3 dias.
+            </p>
+          )}
           <p className="sub" style={{ marginTop: 10 }}>
             Detecção automática a partir dos e-mails — <strong>não é garantia</strong> de que
             todas as cobranças foram encontradas.
@@ -180,6 +207,80 @@ function Painel({ dados }: { dados: ControlTowerData }) {
         </section>
 
         <section className="card">
+          <h2>
+            <a href="/rascunhos" style={{ color: 'inherit' }}>Prazo de resposta</a>
+          </h2>
+          {(() => {
+            const atrasadas = dados.sla.filter((caixa) => caixa.overdue > 0);
+            const totalAtrasado = atrasadas.reduce((soma, c) => soma + c.overdue, 0);
+            const esperando = dados.sla.reduce((soma, c) => soma + c.waiting, 0);
+
+            return (
+              <>
+                <div
+                  className="metric"
+                  style={{ color: totalAtrasado > 0 ? 'var(--crit)' : undefined }}
+                >
+                  {totalAtrasado}
+                </div>
+                <div className="metric-label">
+                  {/* "47 nao lidos" nao mede nada: metade e newsletter. O que
+                      mede e quem esta esperando VOCE, e ha quanto tempo. */}
+                  {totalAtrasado === 0
+                    ? esperando > 0
+                      ? `${esperando} esperando, todas dentro do prazo`
+                      : 'ninguém esperando resposta'
+                    : `passaram do prazo, de ${esperando} esperando`}
+                </div>
+                {atrasadas.map((caixa) => (
+                  <p key={caixa.connectionId} className="sub" style={{ marginTop: 6 }}>
+                    <strong>{caixa.label}</strong>: {caixa.overdue} passou do prazo de{' '}
+                    {caixa.slaHours}h
+                    {caixa.oldestHours !== null && ` · o mais antigo espera há ${caixa.oldestHours}h`}
+                  </p>
+                ))}
+                {dados.overdueItems.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    {dados.overdueItems.slice(0, 3).map((item) => (
+                      <div key={item.unifiedItemId} className="linha">
+                        <span className={`pill ${item.overdue ? 'crit' : 'warn'}`}>
+                          {item.hours}h
+                        </span>
+                        <span className="titulo-item">
+                          {item.title}
+                          <br />
+                          <span className="sub">{item.fromLabel}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </section>
+
+        <section className="card">
+          <h2>
+            <a href="/rascunhos" style={{ color: 'inherit' }}>Rascunhos</a>
+          </h2>
+          <div className="metric">{dados.drafts.proposed}</div>
+          <div className="metric-label">
+            {dados.drafts.proposed === 0 ? 'nenhum esperando você' : 'esperando você olhar'}
+          </div>
+          {(dados.drafts.approved > 0 || dados.drafts.edited > 0) && (
+            <p className="sub" style={{ marginTop: 8 }}>
+              {dados.drafts.approved} aprovado{dados.drafts.approved === 1 ? '' : 's'},{' '}
+              {dados.drafts.edited} editado{dados.drafts.edited === 1 ? '' : 's'} por você.
+            </p>
+          )}
+          <p className="sub" style={{ marginTop: 8 }}>
+            {/* A frase mais importante desta tela. */}
+            <strong>Nenhum rascunho é enviado</strong> — o sistema não envia e-mail.
+          </p>
+        </section>
+
+        <section className="card">
           <h2>Conflitos e alertas</h2>
           {dados.conflicts.length === 0 && dados.alerts.length === 0 ? (
             <Vazio>Nada exigindo atencao.</Vazio>
@@ -202,18 +303,7 @@ function Painel({ dados }: { dados: ControlTowerData }) {
                 </div>
               ))}
               {dados.alerts.map((alerta) => (
-                <div key={alerta.id} className="linha">
-                  <span
-                    className={`pill ${alerta.severity === 'CRITICAL' ? 'crit' : alerta.severity === 'WARN' ? 'warn' : 'ok'}`}
-                  >
-                    {alerta.severity.toLowerCase()}
-                  </span>
-                  <span className="titulo-item">
-                    {alerta.title}
-                    <br />
-                    <span className="sub">{alerta.detail}</span>
-                  </span>
-                </div>
+                <AlertaLinha key={alerta.id} alerta={alerta} />
               ))}
             </>
           )}
@@ -269,6 +359,9 @@ export default async function TorreDeControle() {
           {dados && (
             <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
           )}
+          <a href="/busca" className="sub" style={{ marginRight: 14 }}>
+            busca →
+          </a>
           <a href="/rascunhos" className="sub" style={{ marginRight: 14 }}>
             rascunhos →
           </a>

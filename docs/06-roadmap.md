@@ -124,13 +124,23 @@ completa), não específica do conector Microsoft.
 
 ---
 
-## Fase 3 — Torre de Controle completa
+## Fase 3 — Torre de Controle completa ✅
 
-- Detecção de conflitos de agenda entre contas.
-- Backlog de triagem e SLA de resposta.
-- Métricas semanais de atenção.
-- Alertas com deduplicação e reconhecimento.
-- Busca unificada (Postgres full-text sobre metadados + assunto + snippet).
+- Detecção de conflitos de agenda entre contas ✅
+- Backlog de triagem e **SLA de resposta por caixa** ✅ — o prazo muda por
+  negócio (caixa comercial nasce com 8h, `Pessoais` com 72h), e urgente
+  encurta pela metade. Substitui "não lidos" como métrica da Torre.
+- **Alertas com deduplicação e reconhecimento** ✅ — a tabela já tinha
+  `dedupeKey` e `acknowledgedAt`, mas **nada nunca criava um alerta**. Agora
+  são derivados do mesmo estado que a Torre mostra, dedupados por condição,
+  **resolvidos automaticamente** quando a condição deixa de valer, e
+  reconhecíveis ("eu sei") sem apagar.
+- **Busca unificada** ✅ — `/busca`, sobre assunto, remetente, prévia e
+  título, com filtros por conta, tipo e triagem. O corpo fica de fora de
+  propósito.
+- Métricas semanais de atenção — **não feito**. É a única coisa da fase que
+  ficou de fora: sem histórico de uso real, uma métrica semanal seria um
+  gráfico bonito sobre dados de demonstração.
 
 **Critério de aceite**: a tela de comando responde "está tudo sob controle?"
 sem você abrir mais nada.
