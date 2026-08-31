@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
+import { zerarTriagensAutomaticas } from './actions';
 
 /**
  * Dispara a triagem pela tela.
@@ -154,6 +155,63 @@ export function BotaoTriar({ pendentes }: { pendentes: number }) {
       {estado.tipo === 'erro' && (
         <span style={{ fontSize: 12, color: 'var(--crit)', maxWidth: 460 }}>{estado.mensagem}</span>
       )}
+    </span>
+  );
+}
+
+/**
+ * Apaga as classificações automáticas para refazê-las.
+ *
+ * Só aparece quando já existe classificação. Preserva o que você corrigiu —
+ * o botão diz isso antes de agir, porque "zerar" num app que aprende com
+ * suas correções soa como perder o aprendizado.
+ */
+export function BotaoRefazer({ automaticas }: { automaticas: number }) {
+  const [mensagem, setMensagem] = useState<string | null>(null);
+  const [enviando, iniciar] = useTransition();
+
+  if (automaticas === 0) return null;
+
+  function executar() {
+    if (
+      !window.confirm(
+        `Apagar ${automaticas} classificação(ões) automática(s) para refazer?\n\n` +
+          'Suas correções manuais não são tocadas.',
+      )
+    ) {
+      return;
+    }
+    setMensagem(null);
+    iniciar(async () => {
+      const resultado = await zerarTriagensAutomaticas();
+      if (!resultado.ok) {
+        setMensagem(resultado.erro ?? 'Falha ao apagar');
+        return;
+      }
+      window.location.reload();
+    });
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+      <button
+        type="button"
+        onClick={executar}
+        disabled={enviando}
+        style={{
+          padding: '8px 12px',
+          borderRadius: 3,
+          border: '1px solid var(--border-forte)',
+          background: 'transparent',
+          color: 'var(--muted)',
+          fontSize: 12,
+          cursor: enviando ? 'progress' : 'pointer',
+        }}
+        title="Apaga as classificações feitas por regra e por modelo, preservando as suas correções"
+      >
+        {enviando ? 'Apagando…' : `Refazer ${automaticas} automáticas`}
+      </button>
+      {mensagem && <span style={{ fontSize: 11, color: 'var(--crit)' }}>{mensagem}</span>}
     </span>
   );
 }

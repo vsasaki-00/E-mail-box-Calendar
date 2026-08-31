@@ -135,3 +135,55 @@ export async function corrigirLote(
   }
   return { ok: true, corrigidos };
 }
+
+export interface ZerarResultado {
+  ok: boolean;
+  apagadas?: number;
+  preservadas?: number;
+  erro?: string;
+}
+
+/**
+ * Apaga classificacoes automaticas para que possam ser refeitas.
+ *
+ * Existe por causa de um episodio concreto: uma variavel de ambiente vazia
+ * fez toda a triagem falhar, e as mensagens ficaram gravadas com o resultado
+ * do fallback ("precisa resposta", confianca 0). Sem isto, a unica saida
+ * seria corrigir cinquenta itens a mao ou conviver com dados errados.
+ *
+ * NUNCA apaga o que veio de voce (`source: USER`), nem o historico de
+ * TriageFeedback. Suas correcoes sao a materia-prima da calibragem — um
+ * botao de "refazer" que as destruisse trocaria um problema recuperavel por
+ * um irreversivel.
+ */
+export async function zerarTriagensAutomaticas(): Promise<ZerarResultado> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+
+  let apagadas = 0;
+  let preservadas = 0;
+  try {
+    preservadas = await prisma.itemTriage.count({
+      where: { userId: usuario.id, source: 'USER' },
+    });
+    const resultado = await prisma.itemTriage.deleteMany({
+      where: { userId: usuario.id, source: { not: 'USER' } },
+    });
+    apagadas = resultado.count;
+  } catch (erro) {
+    return { ok: false, erro: erro instanceof Error ? erro.message : String(erro) };
+  }
+
+  // Fora do try de proposito: a essa altura o trabalho JA foi feito. Se a
+  // revalidacao falhar, reportar erro faria voce clicar de novo numa
+  // operacao que deu certo — o cache desatualizado e o mal menor, e some no
+  // proximo carregamento.
+  try {
+    revalidatePath('/triagem');
+    revalidatePath('/');
+  } catch {
+    // Nada a fazer: o dado ja esta correto no banco.
+  }
+
+  return { ok: true, apagadas, preservadas };
+}

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { ItemTriagemLinha, type ItemTriagem } from './item-form';
 import { Nav } from '../nav';
-import { BotaoTriar } from './botao-triar';
+import { BotaoTriar, BotaoRefazer } from './botao-triar';
 import { ProvedorSelecao } from './selecao';
 
 /**
@@ -73,7 +73,7 @@ export default async function PaginaTriagem({
     );
   }
 
-  const [triagens, totalTriado, pendentes, correcoes] = await Promise.all([
+  const [triagens, totalTriado, pendentes, correcoes, automaticas] = await Promise.all([
     prisma.itemTriage.findMany({
       where: whereDoFiltro(usuario.id, filtro),
       include: { unifiedItem: { select: { title: true, preview: true, occurredAt: true, copyCount: true } } },
@@ -94,6 +94,8 @@ export default async function PaginaTriagem({
       },
     }),
     prisma.triageFeedback.count({ where: { userId: usuario.id } }),
+    // Quantas dao para refazer: as que NAO vieram de voce.
+    prisma.itemTriage.count({ where: { userId: usuario.id, source: { not: 'USER' } } }),
   ]);
 
   // Ordenacao em memoria: Prisma nao ordena enum pela ordem semantica, e a
@@ -142,7 +144,10 @@ export default async function PaginaTriagem({
             triagem ele sumia e nao havia como classificar o que sobrou —
             mensagem nova chega toda hora, entao "o que sobrou" e o estado
             normal, nao a excecao. */}
-        {pendentes > 0 && totalTriado > 0 && <BotaoTriar pendentes={pendentes} />}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {pendentes > 0 && totalTriado > 0 && <BotaoTriar pendentes={pendentes} />}
+          <BotaoRefazer automaticas={automaticas} />
+        </div>
       </header>
 
       {totalTriado === 0 ? (
