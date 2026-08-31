@@ -34,7 +34,7 @@ interface RespostaSync {
 
 type Estado =
   | { tipo: 'ocioso' }
-  | { tipo: 'rodando'; rodada: number; itens: number }
+  | { tipo: 'rodando'; rodada: number; itens: number; recurso?: string }
   | { tipo: 'concluido'; itens: number }
   | { tipo: 'erro'; mensagem: string };
 
@@ -44,7 +44,7 @@ type Estado =
  */
 async function sincronizarConexao(
   connectionId: string,
-  aoProgresso: (rodada: number, itens: number) => void,
+  aoProgresso: (rodada: number, itens: number, recurso?: string) => void,
 ): Promise<{ itens: number; completo: boolean; erro?: string }> {
   let itens = 0;
 
@@ -93,6 +93,14 @@ async function sincronizarConexao(
         (resultado.counts?.deleted ?? 0);
     }
 
+    // Mostra QUAL recurso avancou. Sem isto, uma agenda que nao enche fica
+    // indistinguivel de uma agenda vazia — e foi assim que o calendario
+    // passou voltas inteiras sem nunca ser sincronizado, em silencio.
+    const ativo = resultados.find((r) => r.outcome !== 'SUCCESS') ?? resultados[0];
+    if (ativo) {
+      aoProgresso(rodada, itens, ativo.resource === 'MAIL' ? 'e-mail' : 'agenda');
+    }
+
     const falha = resultados.find((r) => r.outcome === 'FAILED');
     if (falha) {
       // Erro do provedor interrompe o loop e APARECE — a alternativa seria
@@ -127,9 +135,9 @@ function rotulo(estado: Estado, ocioso: string): string {
     case 'ocioso':
       return ocioso;
     case 'rodando':
-      return estado.rodada === 1
-        ? 'Sincronizando…'
-        : `Sincronizando… ${estado.itens} itens (página ${estado.rodada})`;
+      return estado.recurso
+        ? `Sincronizando ${estado.recurso}… ${estado.itens} itens (volta ${estado.rodada})`
+        : 'Sincronizando…';
     case 'concluido':
       return `✓ ${estado.itens} itens`;
     case 'erro':
@@ -142,8 +150,8 @@ export function BotaoSincronizar({ connectionId }: { connectionId: string }) {
 
   async function executar() {
     setEstado({ tipo: 'rodando', rodada: 1, itens: 0 });
-    const resultado = await sincronizarConexao(connectionId, (rodada, itens) =>
-      setEstado({ tipo: 'rodando', rodada, itens }),
+    const resultado = await sincronizarConexao(connectionId, (rodada, itens, recurso) =>
+      setEstado({ tipo: 'rodando', rodada, itens, recurso }),
     );
     if (resultado.erro) {
       setEstado({ tipo: 'erro', mensagem: resultado.erro });
@@ -249,8 +257,8 @@ export function BotaoSincronizarTodas({ connectionIds }: { connectionIds: string
       setEstado({ tipo: 'rodando', rodada: 1, itens: totalItens });
       // Sequencial de propósito: cada caixa no seu tempo, cada requisição
       // curta — cinco caixas em paralelo brigariam pelo mesmo limite.
-      const resultado = await sincronizarConexao(id, (rodada, itens) =>
-        setEstado({ tipo: 'rodando', rodada, itens: totalItens + itens }),
+      const resultado = await sincronizarConexao(id, (rodada, itens, recurso) =>
+        setEstado({ tipo: 'rodando', rodada, itens: totalItens + itens, recurso }),
       );
       totalItens += resultado.itens;
       if (resultado.erro) erros.push(resultado.erro);
@@ -275,7 +283,7 @@ export function BotaoSincronizarTodas({ connectionIds }: { connectionIds: string
         onClick={executar}
       >
         {estado.tipo === 'rodando'
-          ? `Sincronizando caixa ${posicao}/${connectionIds.length}… ${estado.itens} itens`
+          ? `Caixa ${posicao}/${connectionIds.length}${estado.recurso ? ` · ${estado.recurso}` : ''}… ${estado.itens} itens`
           : rotulo(estado, `Sincronizar todas as caixas (${connectionIds.length})`)}
       </button>
       {estado.tipo === 'erro' && (

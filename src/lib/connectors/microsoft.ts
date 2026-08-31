@@ -74,7 +74,7 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
  * Agora o conector devolve o controle cedo, carregando a URL de continuacao
  * — nada e refeito e nada e descartado.
  */
-const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 2);
+const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 1);
 
 /**
  * Orcamento de TEMPO por chamada de fetch, em ms.
@@ -95,8 +95,8 @@ function orcamentoMs(): number {
   // orcamento de 12s.
   return Number(process.env.GRAPH_RUN_BUDGET_MS ?? 6_000);
 }
-const MAIL_PAGE_SIZE = 50;
-const CALENDAR_PAGE_SIZE = 100;
+const MAIL_PAGE_SIZE = 25;
+const CALENDAR_PAGE_SIZE = 50;
 
 const MESSAGE_SELECT = [
   'id',

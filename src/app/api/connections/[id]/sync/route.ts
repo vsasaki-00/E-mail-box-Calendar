@@ -17,6 +17,15 @@ import { getConnector } from '@/lib/connectors/registry';
 export const maxDuration = 60;
 
 /**
+ * Quando desistir e responder mesmo assim.
+ *
+ * Confortavelmente abaixo do teto da funcao: uma resposta nossa, ainda que
+ * dizendo "nao terminei", vale mais que o 504 da plataforma — que chega sem
+ * corpo, sem causa e sem indicar em que recurso o tempo foi gasto.
+ */
+const PRAZO_RESPOSTA_MS = 40_000;
+
+/**
  * UMA execucao por recurso, por requisicao. Sem laco aqui.
  *
  * O laco existia para poupar idas e vindas, mas encadeava trabalho de
@@ -118,15 +127,38 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
   const resto = estados.filter((e) => e.id !== primeiro?.id);
 
   if (primeiro) {
-    const resultado = await runSync(primeiro, new Date());
-    // PARTIAL significa "sobrou trabalho", e e o que manda o navegador pedir
-    // a proxima volta.
-    resultados.push({
-      resource: primeiro.resource,
-      outcome: resultado.outcome,
-      counts: resultado.counts,
-      ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
-    });
+    // Corrida contra o relogio da plataforma.
+    //
+    // Se a funcao for cortada, quem responde e a Vercel — com uma pagina de
+    // texto e o codigo FUNCTION_INVOCATION_TIMEOUT, que nao diz o que estava
+    // acontecendo. Respondendo antes, a mensagem nomeia o recurso e o
+    // tempo, e o trabalho ja persistido (pagina a pagina) nao se perde.
+    const resultado = await Promise.race([
+      runSync(primeiro, new Date()),
+      new Promise<'ESTOUROU'>((resolve) => setTimeout(() => resolve('ESTOUROU'), PRAZO_RESPOSTA_MS)),
+    ]);
+
+    if (resultado === 'ESTOUROU') {
+      resultados.push({
+        resource: primeiro.resource,
+        // PARTIAL, e nao FAILED: nao houve erro — o trabalho continua na
+        // proxima volta, a partir do cursor ja gravado.
+        outcome: 'PARTIAL',
+        counts: { created: 0, updated: 0, deleted: 0 },
+        errorMessage:
+          `${primeiro.resource === 'MAIL' ? 'E-mail' : 'Calendário'} passou de ` +
+          `${PRAZO_RESPOSTA_MS / 1000}s nesta volta e continuará na próxima.`,
+      });
+    } else {
+      // PARTIAL significa "sobrou trabalho", e e o que manda o navegador
+      // pedir a proxima volta.
+      resultados.push({
+        resource: primeiro.resource,
+        outcome: resultado.outcome,
+        counts: resultado.counts,
+        ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
+      });
+    }
   }
 
   // Os demais nao rodaram agora. Reportar PARTIAL faz o navegador voltar
