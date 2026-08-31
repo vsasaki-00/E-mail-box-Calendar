@@ -97,7 +97,14 @@ fi
 # Dependencias
 # ---------------------------------------------------------------------------
 passo "Instalando dependências"
-pnpm install --silent
+if ! pnpm install --silent; then
+  vermelho "✗ a instalação falhou"
+  printf '\n  Se a mensagem acima foi ERR_PNPM_IGNORED_BUILDS, o pnpm bloqueou\n'
+  printf '  os scripts que este projeto precisa. Autorize uma vez:\n\n'
+  printf '    pnpm approve-builds\n\n'
+  printf '  (marque todos com "a", confirme com Enter, e rode este script de novo)\n'
+  exit 1
+fi
 verde "✓ dependências instaladas"
 
 # Rede de seguranca: versoes recentes do pnpm BLOQUEIAM build scripts por
