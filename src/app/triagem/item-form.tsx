@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { corrigirTriagem, type CorrigirResultado } from './actions';
 import { CaixaSelecao } from './selecao';
+import { CATEGORIA_LABEL, PRIORIDADE_LABEL } from './rotulos';
 
 /**
  * Uma linha da triagem, com correcao inline.
@@ -27,21 +28,8 @@ export interface ItemTriagem {
   copyCount: number;
 }
 
-export const CATEGORIA_LABEL: Record<string, string> = {
-  COBRANCA: 'cobrança',
-  NEEDS_REPLY: 'precisa resposta',
-  INFORMATIVE: 'informativo',
-  PROMOTIONAL: 'promocional',
-  SPAM: 'spam',
-  DISPOSABLE: 'descartável',
-};
-
-export const PRIORIDADE_LABEL: Record<string, string> = {
-  URGENT: 'urgente',
-  HIGH: 'alta',
-  NORMAL: 'normal',
-  LOW: 'baixa',
-};
+// Rotulos vivem em ./rotulos para nao criar ciclo com ./selecao.
+export { CATEGORIA_LABEL, PRIORIDADE_LABEL } from './rotulos';
 
 function classePorCategoria(categoria: string): string {
   if (categoria === 'COBRANCA') return 'warn';

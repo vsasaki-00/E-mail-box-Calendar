@@ -80,7 +80,19 @@ export default async function PaginaTriagem({
       take: 150,
     }),
     prisma.itemTriage.count({ where: { userId: usuario.id } }),
-    prisma.unifiedItem.count({ where: { userId: usuario.id, kind: 'MESSAGE', triage: null } }),
+    // MESMO criterio da rota /api/triage/run: so conta o que a triagem
+    // realmente vai processar. Sem o filtro de caixa, o numero incluia
+    // pastas fora da visao unificada (Enviados, Arquivo) — a tela prometia
+    // 18 pendentes e o botao respondia "nada a fazer", com os dois certos
+    // pela sua propria conta e o usuario no meio.
+    prisma.unifiedItem.count({
+      where: {
+        userId: usuario.id,
+        kind: 'MESSAGE',
+        triage: null,
+        messages: { some: { mailbox: { includeInUnified: true } } },
+      },
+    }),
     prisma.triageFeedback.count({ where: { userId: usuario.id } }),
   ]);
 

@@ -49,7 +49,21 @@ export function BotaoTriar({ pendentes }: { pendentes: number }) {
       feitas += passo.processadas;
       setEstado({ tipo: 'rodando', feitas, restantes: passo.restantes });
 
-      if (passo.concluido) break;
+      if (passo.concluido) {
+        // Concluir sem ter feito nada nao e sucesso: e o servidor dizendo
+        // que nao ha o que classificar. Recarregar em silencio aqui era
+        // exatamente o que parecia "o botao nao tria".
+        if (feitas === 0) {
+          setEstado({
+            tipo: 'erro',
+            mensagem:
+              'Nenhuma mensagem elegível. As pendentes estão em pastas fora da visão unificada ' +
+              '(Enviados, Arquivo), que a triagem não processa.',
+          });
+          return;
+        }
+        break;
+      }
       if (passo.processadas === 0) {
         // Nada avancou e o servidor nao declarou fim: parar e dizer, em vez
         // de girar contra uma caixa que nunca progride.

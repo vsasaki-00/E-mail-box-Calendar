@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useTransition, type ReactNode } from 'react';
 import { corrigirLote } from './actions';
+import { CATEGORIA_LABEL, PRIORIDADE_LABEL } from './rotulos';
 
 /**
  * Seleção múltipla e correção em lote.
@@ -27,21 +28,16 @@ export function useSelecao(): Selecao | null {
   return useContext(ContextoSelecao);
 }
 
-const CATEGORIAS = [
-  { valor: 'NEEDS_REPLY', rotulo: 'Precisa resposta' },
-  { valor: 'FYI', rotulo: 'Só ler' },
-  { valor: 'FINANCE', rotulo: 'Financeiro' },
-  { valor: 'SCHEDULING', rotulo: 'Agendamento' },
-  { valor: 'PROMOTION', rotulo: 'Promoção' },
-  { valor: 'SPAM', rotulo: 'Spam' },
-] as const;
-
-const PRIORIDADES = [
-  { valor: 'URGENT', rotulo: 'Urgente' },
-  { valor: 'HIGH', rotulo: 'Alta' },
-  { valor: 'NORMAL', rotulo: 'Normal' },
-  { valor: 'LOW', rotulo: 'Baixa' },
-] as const;
+/*
+ * Categorias e prioridades vem dos MESMOS mapas que a lista usa para
+ * exibir. Eu havia escrito uma lista propria aqui, com valores inventados
+ * ("PROMOTION", "FYI"), e toda correcao em lote voltava "Categoria
+ * invalida" — o enum real e COBRANCA/NEEDS_REPLY/INFORMATIVE/PROMOTIONAL/
+ * SPAM/DISPOSABLE. Derivar dos rotulos existentes impede a divergencia de
+ * acontecer de novo.
+ */
+const CATEGORIAS = Object.entries(CATEGORIA_LABEL).map(([valor, rotulo]) => ({ valor, rotulo }));
+const PRIORIDADES = Object.entries(PRIORIDADE_LABEL).map(([valor, rotulo]) => ({ valor, rotulo }));
 
 const campo = {
   padding: '5px 8px',
@@ -54,7 +50,7 @@ const campo = {
 
 export function ProvedorSelecao({ children }: { children: ReactNode }) {
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
-  const [categoria, setCategoria] = useState<string>('PROMOTION');
+  const [categoria, setCategoria] = useState<string>('PROMOTIONAL');
   const [prioridade, setPrioridade] = useState<string>('LOW');
   const [precisaResposta, setPrecisaResposta] = useState(false);
   const [mensagem, setMensagem] = useState<string | null>(null);
