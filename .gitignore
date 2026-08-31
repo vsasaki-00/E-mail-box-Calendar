@@ -5,6 +5,9 @@ build/
 dist/
 .env
 .env.local
+# Aponta o worker local para o banco de PRODUCAO: carrega a connection
+# string do Supabase e a chave mestra. Nunca versionar.
+.env.producao
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store

@@ -214,6 +214,35 @@ curl -H "x-cron-secret: $CRON_SECRET" https://<seu-domínio>/api/cron/sync
 
 ---
 
+## 5b. Carga inicial pela sua máquina
+
+O primeiro sync de caixas grandes leva **centenas de voltas** na Vercel,
+porque cada função morre em 60s e cada volta grava poucos itens. O mesmo
+código, rodando no seu Mac, não tem esse limite:
+
+```bash
+cp .env.producao.example .env.producao
+# preencha DATABASE_URL (session pooler, 5432) e MASTER_ENCRYPTION_KEY
+pnpm worker:producao
+```
+
+Deixe rodando até a Torre parar de crescer e encerre com `Ctrl+C`.
+
+Três cuidados:
+
+- A `MASTER_ENCRYPTION_KEY` tem que ser **exatamente** a da Vercel. Com uma
+  chave diferente os tokens gravados ficam ilegíveis e toda conexão falha.
+- Use o **session pooler (5432)**, não o transaction pooler: o worker é um
+  processo longo e faz muitas conexões seguidas.
+- `.env.producao` está no `.gitignore`. Ele carrega a chave que decifra os
+  tokens de todas as suas caixas — trate como senha.
+
+O arquivo existe porque passar os valores na linha de comando é frágil:
+eles ficam no histórico do shell, aparecem em `ps` para outros processos, e
+um espaço reservado colado sem substituir vira um erro obscuro de driver.
+
+---
+
 ## 6. Ordem de execução
 
 1. `pnpm gerar:senha` → guarde as três linhas.

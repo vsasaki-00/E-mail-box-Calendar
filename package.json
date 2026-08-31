@@ -19,7 +19,8 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "setup": "bash scripts/setup.sh",
-    "gerar:senha": "tsx scripts/gerar-senha.ts"
+    "gerar:senha": "tsx scripts/gerar-senha.ts",
+    "worker:producao": "tsx --env-file=.env.producao src/worker/index.ts"
   },
   "prisma": {
     "seed": "tsx --env-file-if-exists=.env prisma/seed.ts"
