@@ -4,6 +4,10 @@ import { buildMicrosoftAuthUrl, mapMicrosoftError } from './microsoft';
 import { domainFromEmail, guessConfigForDomain, APPLE_PRESET } from './imap-caldav';
 import { allConnectors, getConnector } from './registry';
 
+const googleConnector = getConnector('GOOGLE');
+const microsoftConnector = getConnector('MICROSOFT');
+const imapCaldavConnector = getConnector('IMAP_CALDAV');
+
 describe('registry', () => {
   it('resolve um conector para cada provedor do schema', () => {
     for (const provider of ['GOOGLE', 'MICROSOFT', 'APPLE', 'IMAP_CALDAV'] as const) {
@@ -131,5 +135,32 @@ describe('autodiscovery IMAP/CalDAV', () => {
   it('extrai o dominio de enderecos com arroba no nome', () => {
     expect(domainFromEmail('nome"@"estranho@Exemplo.COM')).toBe('exemplo.com');
     expect(() => domainFromEmail('sem-arroba')).toThrow();
+  });
+});
+
+describe('capacidade de anexo — declarada, não assumida', () => {
+  it('Google e Microsoft declaram que sabem baixar anexo', () => {
+    // O painel financeiro consulta a capacidade e só tenta onde ela é
+    // verdadeira; o núcleo não ramifica por provedor.
+    expect(googleConnector.capabilities.attachments).toBe(true);
+    expect(typeof googleConnector.fetchAttachments).toBe('function');
+    expect(microsoftConnector.capabilities.attachments).toBe(true);
+    expect(typeof microsoftConnector.fetchAttachments).toBe('function');
+  });
+
+  it('IMAP/CalDAV declara FALSE — e é honesto sobre por quê', () => {
+    // O protocolo sabe baixar parte de mensagem, mas este conector nunca
+    // foi validado contra servidor real. Declarar false faz o painel
+    // simplesmente não tentar, em vez de tentar e falhar em silêncio.
+    expect(imapCaldavConnector.capabilities.attachments).toBe(false);
+  });
+
+  it('nenhum conector ganhou capacidade de ESCRITA junto', () => {
+    // Anexo é leitura. Se algum passar a declarar write:true, é fase 4 e
+    // exige consentimento OAuth novo — este teste obriga a decisão a ser
+    // explícita.
+    for (const conector of [googleConnector, microsoftConnector, imapCaldavConnector]) {
+      expect(conector.capabilities.write).toBe(false);
+    }
   });
 });

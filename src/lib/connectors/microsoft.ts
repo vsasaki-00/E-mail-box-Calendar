@@ -8,6 +8,7 @@ import type {
   RawEvent,
   RawMailbox,
   RawMessage,
+  RawAttachment,
 } from './types';
 import { ConnectorError } from './types';
 import { ensureMicrosoftAccessToken, fetchMicrosoftAccountEmail } from './microsoft-auth';
@@ -92,6 +93,7 @@ export const microsoftCapabilities: ConnectorCapabilities = {
   push: true,
   serverSideSearch: true,
   write: false,
+  attachments: true,
   pollIntervalSeconds: 300,
 };
 
@@ -314,7 +316,52 @@ export const microsoftConnector: Connector = {
     if (!conteudo) return {};
     return mensagem.body?.contentType === 'html' ? { html: conteudo } : { text: conteudo };
   },
+
+  /**
+   * Anexos do Graph vem em UMA chamada, com o conteudo ja embutido em
+   * `contentBytes` (base64) — diferente do Gmail, que exige uma segunda
+   * chamada por anexo.
+   *
+   * `$select` explicito para nao arrastar o `contentBytes` de anexo grande
+   * que sera descartado logo em seguida.
+   */
+  async fetchAttachments(ctx, providerId, options) {
+    const maxBytes = options?.maxBytes ?? MAX_ATTACHMENT_BYTES;
+
+    const resposta = await graphGet<{
+      value?: {
+        id?: string;
+        name?: string;
+        contentType?: string;
+        size?: number;
+        contentBytes?: string;
+        '@odata.type'?: string;
+      }[];
+    }>(ctx, `/me/messages/${encodeURIComponent(providerId)}/attachments`);
+
+    const anexos: RawAttachment[] = [];
+    for (const item of resposta.value ?? []) {
+      // So anexo de ARQUIVO. `itemAttachment` e um e-mail/evento embutido e
+      // `referenceAttachment` e um link para nuvem — nenhum dos dois tem
+      // bytes para ler aqui.
+      if (item['@odata.type'] && !item['@odata.type'].includes('fileAttachment')) continue;
+      if (!item.contentBytes) continue;
+      if ((item.size ?? 0) > maxBytes) continue;
+
+      anexos.push({
+        providerId: item.id ?? '',
+        filename: item.name ?? 'anexo',
+        mimeType: item.contentType ?? 'application/octet-stream',
+        size: item.size ?? 0,
+        data: new Uint8Array(Buffer.from(item.contentBytes, 'base64')),
+      });
+    }
+    return anexos;
+  },
 };
+
+/** Teto por anexo. PDF de boleto tem dezenas de KB; o resto e desperdicio. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // E-mail: delta por pasta

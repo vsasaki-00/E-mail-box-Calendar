@@ -859,3 +859,79 @@ Contra o banco, no estado real deste ambiente (sem `ANTHROPIC_API_KEY`):
 - segunda rodada → `NADA_PENDENTE` (idempotente);
 - `AUTO_PIPELINE=false` → `DESLIGADO`;
 - `AUTO_TRIAGE_DAILY_LIMIT=0` → `ORCAMENTO_ESGOTADO`.
+
+---
+
+# Cobrança em anexo PDF
+
+Era a lacuna declarada da fase 5B, e a mais provável de morder: **"segue o
+boleto em anexo"**, com o corpo do e-mail sem nenhum dado. Sem ler o anexo,
+a cobrança simplesmente não existe para o sistema — e o painel diria "nada
+vencendo" com um boleto vencendo.
+
+## O que foi feito
+
+**Contrato de conector**: `capabilities.attachments` e um método opcional
+`fetchAttachments`. Declarado em vez de assumido — o núcleo consulta a
+capacidade e não tenta onde ela é falsa, sem ramificar por provedor.
+
+| Conector | `attachments` | Por quê |
+|---|---|---|
+| Google | `true` | duas chamadas: a estrutura traz o `attachmentId`, o conteúdo vem depois |
+| Microsoft | `true` | uma chamada: o Graph já embute `contentBytes` |
+| IMAP/CalDAV | **`false`** | o protocolo saberia, mas este conector nunca foi validado contra servidor real |
+
+Esse `false` é deliberado. Declarar `true` faria o painel tentar e falhar em
+silêncio numa caixa Apple; declarar `false` faz ele simplesmente não tentar,
+e a limitação fica visível em vez de virar um bug intermitente.
+
+## Extração
+
+`src/core/finance/pdf.ts`, com a paranoia que um parser de arquivo externo
+exige:
+
+- **Formato verificado pela assinatura** (`%PDF-`), não pelo nome nem pelo
+  `content-type`: os dois vêm de quem mandou o e-mail, e alimentar o parser
+  com o que o remetente *disser* que é um PDF é confiar em desconhecido.
+- Teto de 10MB por arquivo, 10 páginas, 40 mil caracteres.
+- **Nunca lança**: PDF protegido por senha ou corrompido devolve o motivo, e
+  a cobrança continua aparecendo com o que deu para ler do corpo.
+
+## Dois bugs encontrados construindo isto
+
+**O pdfjs se apropria do buffer que recebe.** Depois de ler um anexo, o
+`Uint8Array` do chamador ficava *detached* — `length` virava 0. O sintoma
+apareceu longe da causa: `selectPdfAttachments` passou a devolver vazio
+depois que outro teste leu o mesmo PDF. Se tivesse ido para produção,
+apareceria como "o anexo sumiu". Corrigido passando uma cópia, com teste que
+trava isso.
+
+**"O corpo já resolveu?" estava medido errado.** Eu checava se havia valor
+*rotulado em texto*, ignorando que um boleto válido **já carrega valor e
+vencimento no próprio código**. O efeito seria abrir o anexo de toda
+cobrança que já tinha boleto no corpo — gastando quota para reconfirmar o
+que já sabia. O teste pegou.
+
+## As regras de quando abrir
+
+- Só cobranças **cujo corpo não trouxe instrumento de pagamento**. Abrir PDF
+  de todo mundo gastaria quota à toa.
+- No máximo **15 anexos por execução** (contra 40 corpos): anexo pesa
+  megabytes.
+- O **corpo tem precedência campo a campo**. Quando os dois trazem o dado,
+  vale o que o remetente escreveu para você ler.
+- A justificativa diz **de qual arquivo veio** ("lido do anexo boleto.pdf"),
+  para você saber onde conferir se discordar.
+
+## O que foi verificado, e o que não
+
+**Verificado**: a extração de texto ponta a ponta, contra um PDF real
+gerado no próprio teste (em ASCII, para dar para ver o que ele contém). A
+linha digitável sobrevive à formatação do PDF e é parseada corretamente; o
+valor e o vencimento saem certos; PDF corrompido, grande demais, vazio e
+"não é PDF" devolvem o motivo sem lançar.
+
+**NÃO verificado**: o download em si, no Gmail e no Graph. Não há conta
+conectada nem token neste ambiente. O código segue as APIs documentadas de
+cada um, mas é a mesma ressalva de sempre — o primeiro anexo real é onde
+isso vai ser posto à prova.

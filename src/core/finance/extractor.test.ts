@@ -172,6 +172,78 @@ describe('mergeExtraction — quem manda em valor e vencimento', () => {
   });
 });
 
+describe('cobrança que chega só como PDF anexo', () => {
+  // A lacuna mais provavel do painel financeiro: "segue o boleto em anexo",
+  // com o corpo sem nenhum dado. Sem ler o anexo, a cobranca nao existe.
+  const CORPO_VAZIO = 'Prezado cliente,\n\nSegue em anexo o boleto de agosto.\n\nAtenciosamente.';
+  const TEXTO_DO_PDF = `FORNECEDOR S/A\nValor total: R$ 150,00\nVencimento: 24/05/2022\n${LINHA}`;
+
+  it('lê o boleto do anexo quando o corpo não tem nada', () => {
+    const input = entrada({ id: 'a', body: CORPO_VAZIO });
+    const achados = extractDeterministic(input, HOJE, {
+      text: TEXTO_DO_PDF,
+      sources: ['boleto.pdf'],
+    });
+
+    expect(achados.boleto?.digitableLine).toBe('34191790010104351004791020150008889950000015000');
+    expect(achados.fromAttachment).toBe('boleto.pdf');
+  });
+
+  it('diz na justificativa que o número veio do anexo', () => {
+    // O usuário precisa saber onde conferir se discordar.
+    const input = entrada({ id: 'a', body: CORPO_VAZIO });
+    const resultado = mergeExtraction(
+      input,
+      extractDeterministic(input, HOJE, { text: TEXTO_DO_PDF, sources: ['boleto.pdf'] }),
+      null,
+    );
+
+    expect(resultado.amountCents).toBe(15000);
+    expect(resultado.source).toBe('INSTRUMENT');
+    expect(resultado.reason).toContain('boleto.pdf');
+  });
+
+  it('NÃO abre o anexo quando o corpo já resolveu', () => {
+    // Abrir PDF custa quota; a maioria das cobranças traz tudo no corpo. E
+    // um boleto válido no corpo JÁ carrega valor e vencimento no próprio
+    // código, então não há o que reconfirmar no anexo.
+    const input = entrada({ id: 'a', body: `Segue:\n${LINHA}` });
+    const achados = extractDeterministic(input, HOJE, {
+      text: 'Valor total: R$ 999,00',
+      sources: ['outro.pdf'],
+    });
+
+    expect(achados.fromAttachment).toBeNull();
+    // O valor final sai do instrumento, não do anexo.
+    expect(mergeExtraction(input, achados, null).amountCents).toBe(15000);
+  });
+
+  it('o corpo tem precedência campo a campo sobre o anexo', () => {
+    // Quando os dois trazem o dado, vale o que o remetente escreveu para
+    // você ler.
+    const input = entrada({ id: 'a', body: 'Valor total: R$ 42,00' });
+    const achados = extractDeterministic(input, HOJE, {
+      text: 'Valor total: R$ 999,00\nVencimento: 20/06/2022',
+      sources: ['anexo.pdf'],
+    });
+
+    expect(achados.amountCents).toBe(4200);
+    // Mas o vencimento, que só o anexo tinha, veio dele.
+    expect(achados.dueDate?.toISOString().slice(0, 10)).toBe('2022-06-20');
+  });
+
+  it('anexo sem nada útil não muda nada', () => {
+    const input = entrada({ id: 'a', body: 'Segue em anexo.' });
+    const achados = extractDeterministic(input, HOJE, {
+      text: 'Termos e condições gerais de uso.',
+      sources: ['termos.pdf'],
+    });
+
+    expect(achados.amountCents).toBeNull();
+    expect(achados.fromAttachment).toBeNull();
+  });
+});
+
 describe('runBillExtraction — orquestracao', () => {
   it('falha de API NAO apaga a extracao deterministica', () => {
     // Diferenca deliberada em relacao a triagem: aqui o item nao vira

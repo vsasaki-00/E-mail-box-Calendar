@@ -27,6 +27,13 @@ export interface ConnectorCapabilities {
   serverSideSearch: boolean;
   /** Fase 4. Na fase 1 todos os conectores sao somente leitura. */
   write: boolean;
+  /**
+   * Sabe baixar anexo? O painel financeiro usa para ler boleto em PDF.
+   *
+   * Declarado em vez de assumido: o nucleo consulta a capacidade e
+   * simplesmente nao tenta onde ela e falsa, sem ramificar por provedor.
+   */
+  attachments: boolean;
   /** Intervalo sugerido de polling, em segundos. */
   pollIntervalSeconds: number;
 }
@@ -178,6 +185,28 @@ export interface Connector {
     ctx: ConnectorContext,
     providerId: string,
   ): Promise<{ text?: string; html?: string }>;
+
+  /**
+   * Anexos sob demanda. So existe quando `capabilities.attachments`.
+   *
+   * Sob demanda pelo mesmo motivo do corpo, e com um agravante: anexo pesa
+   * megabytes. Baixar tudo que chega encheria o banco e a quota sem que
+   * quase nada disso fosse olhado.
+   */
+  fetchAttachments?(
+    ctx: ConnectorContext,
+    providerId: string,
+    options?: { maxBytes?: number },
+  ): Promise<RawAttachment[]>;
+}
+
+/** Um anexo ja baixado. `data` e o conteudo bruto. */
+export interface RawAttachment {
+  providerId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  data: Uint8Array;
 }
 
 /** Capacidades de um conector somente leitura sem push (o caso mais restrito). */

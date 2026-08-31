@@ -34,6 +34,7 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **Tela de triagem com correção** (alimenta o aprendizado) | ✅ `src/app/triagem/` |
 | **Perfil de voz por caixa** (derivado da pasta Enviados, processado localmente) | ✅ `src/core/voice/` + `src/app/voz/` |
 | **Painel financeiro** (boleto e PIX lidos localmente, com dígito verificador) | ✅ `src/core/finance/` + `src/app/financeiro/` |
+| **Boleto em PDF anexo** (Google e Microsoft; IMAP declara que não sabe) | ✅ `src/core/finance/pdf.ts` |
 | **Rascunhos de resposta** (com o seu perfil de voz; **nunca envia**) | ✅ `src/core/draft/` + `src/app/rascunhos/` |
 | **Automação pós-sync** (triagem + cobranças sozinhas, com teto de gasto diário) | ✅ `src/core/pipeline/` + `src/worker/` |
 | **SLA de resposta por caixa** (prazo por negócio, urgente encurta) | ✅ `src/core/metrics/sla.ts` |
@@ -156,7 +157,7 @@ com a mensagem real do servidor.
 ### Outros comandos
 
 ```bash
-pnpm test        # 442 testes de núcleo, sem banco
+pnpm test        # 464 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

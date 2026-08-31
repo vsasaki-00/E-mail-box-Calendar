@@ -8,6 +8,7 @@ import type {
   RawEvent,
   RawMailbox,
   RawMessage,
+  RawAttachment,
 } from './types';
 import { ConnectorError } from './types';
 import { ensureGoogleAccessToken } from './google-auth';
@@ -62,6 +63,7 @@ export const googleCapabilities: ConnectorCapabilities = {
   push: true,
   serverSideSearch: true,
   write: false,
+  attachments: true,
   pollIntervalSeconds: 300,
 };
 
@@ -256,7 +258,60 @@ export const googleConnector: Connector = {
     );
     return extrairCorpo(mensagem);
   },
+
+  /**
+   * Anexos do Gmail vem em DUAS chamadas: a estrutura da mensagem traz o
+   * `attachmentId` de cada parte, e o conteudo vem de
+   * `messages/{id}/attachments/{attachmentId}`.
+   */
+  async fetchAttachments(ctx, providerId, options) {
+    const maxBytes = options?.maxBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
+    const mensagem = await googleGet<GmailMessageResource>(
+      ctx,
+      `${GMAIL_BASE}/messages/${encodeURIComponent(providerId)}`,
+      { format: 'full' },
+    );
+
+    const anexos: RawAttachment[] = [];
+    for (const parte of listarPartesComAnexo(mensagem.payload)) {
+      const id = parte.body?.attachmentId;
+      if (!id) continue;
+      // O tamanho ja vem na estrutura: da para recusar ANTES de baixar.
+      if ((parte.body?.size ?? 0) > maxBytes) continue;
+
+      const dado = await googleGet<{ data?: string; size?: number }>(
+        ctx,
+        `${GMAIL_BASE}/messages/${encodeURIComponent(providerId)}/attachments/${encodeURIComponent(id)}`,
+      );
+      if (!dado.data) continue;
+
+      anexos.push({
+        providerId: id,
+        filename: parte.filename ?? 'anexo',
+        mimeType: parte.mimeType ?? 'application/octet-stream',
+        size: dado.size ?? 0,
+        // Gmail devolve base64url, nao base64 padrao.
+        data: new Uint8Array(Buffer.from(dado.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64')),
+      });
+    }
+    return anexos;
+  },
 };
+
+/** Limite padrao por anexo. Ver docs/07: PDF de boleto tem dezenas de KB. */
+export const DEFAULT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** Partes que sao anexo de verdade: tem nome de arquivo e id de anexo. */
+function listarPartesComAnexo(raiz?: GmailPart): GmailPart[] {
+  const saida: GmailPart[] = [];
+  const visitar = (parte?: GmailPart) => {
+    if (!parte) return;
+    if (parte.filename && parte.body?.attachmentId) saida.push(parte);
+    for (const filha of parte.parts ?? []) visitar(filha);
+  };
+  visitar(raiz);
+  return saida;
+}
 
 // ---------------------------------------------------------------------------
 // Gmail: full sync

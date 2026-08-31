@@ -146,20 +146,75 @@ export interface DeterministicFindings {
   dueDate: Date | null;
   amountRaw: string | null;
   dueDateRaw: string | null;
+  /** Nome do anexo de onde veio o dado, quando veio de anexo. */
+  fromAttachment: string | null;
 }
 
-/** O que da para saber do e-mail sem gastar uma chamada de modelo. */
-export function extractDeterministic(input: BillInput, hoje = new Date()): DeterministicFindings {
-  const boletos = findBoletos(input.body, hoje);
-  const boleto = boletos.find((b) => b.checksumValid) ?? boletos[0] ?? null;
-  const pix = parsePix(input.body);
+/**
+ * O que da para saber do e-mail sem gastar uma chamada de modelo.
+ *
+ * `attachmentText` e o texto ja extraido dos PDFs anexos. Ele entra como
+ * uma SEGUNDA passada, so quando o corpo nao resolveu: a maioria dos
+ * e-mails de cobranca traz tudo no corpo, e abrir anexo custa quota.
+ */
+export function extractDeterministic(
+  input: BillInput,
+  hoje = new Date(),
+  anexos?: { text: string; sources: string[] },
+): DeterministicFindings {
+  const doCorpo = lerTexto(input.body, hoje);
 
-  const valorTexto = pickAmount(input.body);
-  const vencimentoTexto = pickDueDate(input.body, hoje);
+  if (resolvido(doCorpo) || !anexos?.text.trim()) {
+    return { ...doCorpo, fromAttachment: null };
+  }
+
+  // "segue o boleto em anexo" com o corpo vazio e o caso que esta fase
+  // existe para cobrir.
+  const doAnexo = lerTexto(anexos.text, hoje);
+  const usouAnexo =
+    (!doCorpo.boleto && doAnexo.boleto) ||
+    (!doCorpo.pix && doAnexo.pix) ||
+    (doCorpo.amountCents === null && doAnexo.amountCents !== null) ||
+    (doCorpo.dueDate === null && doAnexo.dueDate !== null);
+
+  return {
+    // O corpo tem precedencia campo a campo: quando os dois trazem o dado,
+    // o do corpo e o que o remetente escreveu para voce ler.
+    boleto: doCorpo.boleto ?? doAnexo.boleto,
+    pix: doCorpo.pix ?? doAnexo.pix,
+    amountCents: doCorpo.amountCents ?? doAnexo.amountCents,
+    dueDate: doCorpo.dueDate ?? doAnexo.dueDate,
+    amountRaw: doCorpo.amountRaw ?? doAnexo.amountRaw,
+    dueDateRaw: doCorpo.dueDateRaw ?? doAnexo.dueDateRaw,
+    fromAttachment: usouAnexo ? (anexos.sources[0] ?? 'anexo') : null,
+  };
+}
+
+type TextFindings = Omit<DeterministicFindings, 'fromAttachment'>;
+
+/**
+ * O texto ja deu valor E vencimento?
+ *
+ * Conta o que o INSTRUMENTO carrega, e nao so o que esta rotulado em
+ * texto: um boleto valido ja traz os dois no proprio codigo, e ignorar
+ * isso faria o sistema abrir o anexo de toda cobranca com boleto no
+ * corpo — gastando quota para reconfirmar o que ja sabia.
+ */
+function resolvido(f: TextFindings): boolean {
+  const valor = f.boleto?.amountCents ?? f.pix?.amountCents ?? f.amountCents;
+  const vencimento = f.boleto?.dueDate ?? f.dueDate;
+  return valor !== null && valor !== undefined && vencimento !== null && vencimento !== undefined;
+}
+
+function lerTexto(texto: string, hoje: Date): TextFindings {
+  const boletos = findBoletos(texto, hoje);
+  const boleto = boletos.find((b) => b.checksumValid) ?? boletos[0] ?? null;
+  const valorTexto = pickAmount(texto);
+  const vencimentoTexto = pickDueDate(texto, hoje);
 
   return {
     boleto,
-    pix,
+    pix: parsePix(texto),
     amountCents: valorTexto?.cents ?? null,
     dueDate: vencimentoTexto?.date ?? null,
     amountRaw: valorTexto?.raw ?? null,
@@ -283,6 +338,12 @@ export function mergeExtraction(
   if (amountCents === null) warnings.push('Valor não identificado — abra o e-mail para conferir.');
   if (dueDate === null) warnings.push('Vencimento não identificado — abra o e-mail para conferir.');
 
+  if (achados.fromAttachment) {
+    // O usuario precisa saber que o numero saiu do PDF, e nao do texto que
+    // ele leu no e-mail — e onde conferir se discordar.
+    razoes.push(`lido do anexo ${achados.fromAttachment}`);
+  }
+
   const kind = kindFrom(achados) ?? doModelo?.kind ?? 'OUTRO';
 
   return {
@@ -341,9 +402,13 @@ export async function runBillExtraction(
   inputs: BillInput[],
   model: BillModel | null,
   hoje = new Date(),
+  /** Texto ja extraido dos PDFs anexos, por id de item. */
+  anexosPorId?: Map<string, { text: string; sources: string[] }>,
 ): Promise<BillRunResult> {
   const achadosPorId = new Map<string, DeterministicFindings>();
-  for (const input of inputs) achadosPorId.set(input.id, extractDeterministic(input, hoje));
+  for (const input of inputs) {
+    achadosPorId.set(input.id, extractDeterministic(input, hoje, anexosPorId?.get(input.id)));
+  }
 
   const doModeloPorId = new Map<string, ExtractionResponse['results'][number]>();
   const modelFailures: string[] = [];

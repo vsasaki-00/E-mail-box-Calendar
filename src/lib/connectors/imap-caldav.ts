@@ -8,6 +8,7 @@ import type {
   RawEvent,
   RawMailbox,
   RawMessage,
+  RawAttachment,
 } from './types';
 import { ConnectorError } from './types';
 import {
@@ -69,6 +70,11 @@ export const imapCaldavCapabilities: ConnectorCapabilities = {
   push: false,
   serverSideSearch: false,
   write: false,
+  // O IMAP sabe baixar parte de mensagem, mas ESTE conector nunca foi
+  // validado contra servidor real (ver docs/03-conectores.md). Declarar
+  // false mantem o painel financeiro honesto: ele simplesmente nao tenta,
+  // em vez de tentar e falhar em silencio.
+  attachments: false,
   pollIntervalSeconds: 900,
 };
 

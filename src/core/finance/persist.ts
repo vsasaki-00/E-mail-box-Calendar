@@ -7,9 +7,11 @@ import { getConnector } from '@/lib/connectors/registry';
 import {
   BILL_PROMPT_VERSION,
   createAnthropicBillModel,
+  extractDeterministic,
   runBillExtraction,
   type BillModel,
 } from './extractor';
+import { extractFromAttachments } from './pdf';
 import type { BillExtraction, BillInput } from './types';
 
 /**
@@ -29,6 +31,11 @@ export const MAX_BILLS_PER_RUN = 60;
 /** Corpos buscados do provedor por execucao. */
 export const MAX_BODY_FETCHES = 40;
 const FETCH_CONCURRENCY = 4;
+/**
+ * Anexos abertos por execucao. Bem menor que o de corpos: anexo pesa
+ * megabytes e a maioria das cobrancas se resolve no corpo.
+ */
+export const MAX_ATTACHMENT_FETCHES = 15;
 
 async function emLotes<T, R>(itens: T[], tamanho: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const saida: R[] = [];
@@ -140,8 +147,13 @@ export async function extractBillsForConnection(
         hasAttachments: m.hasAttachments,
       }));
 
+    // Anexos so para quem NAO resolveu no corpo — abrir PDF de todo mundo
+    // gastaria quota a toa. O conector declara se sabe baixar; onde a
+    // capacidade e falsa, nem tenta.
+    const anexosPorId = await lerAnexosPdf(connection, mensagens, inputs);
+
     const modelo = model === undefined ? criarModeloSeHouverChave() : model;
-    const execucao = await runBillExtraction(inputs, modelo, hoje);
+    const execucao = await runBillExtraction(inputs, modelo, hoje, anexosPorId);
     const gravacao = await persistBillExtractions(execucao.extractions, userId, modelo?.name ?? null);
 
     return {
@@ -157,6 +169,60 @@ export async function extractBillsForConnection(
   } catch (erro) {
     return { ...base, ...vazio, error: erro instanceof Error ? erro.message : String(erro) };
   }
+}
+
+/**
+ * Baixa e le os PDFs anexos das cobrancas que o corpo nao resolveu.
+ *
+ * A lacuna mais provavel do painel financeiro: "segue o boleto em anexo",
+ * com o corpo sem nenhum dado. Sem isto, a cobranca nao existe.
+ *
+ * Nunca lanca: anexo que nao veio deixa aquela cobranca com o que o corpo
+ * deu, e a extracao das outras segue.
+ */
+async function lerAnexosPdf(
+  connection: Connection,
+  mensagens: { unifiedItemId: string | null; providerId: string; hasAttachments: boolean }[],
+  inputs: BillInput[],
+): Promise<Map<string, { text: string; sources: string[] }>> {
+  const saida = new Map<string, { text: string; sources: string[] }>();
+
+  const conector = getConnector(connection.provider);
+  if (!conector.capabilities.attachments || !conector.fetchAttachments) return saida;
+
+  // So os que tem anexo E cujo corpo nao trouxe instrumento de pagamento.
+  const porId = new Map(inputs.map((i) => [i.id, i]));
+  const candidatas = mensagens
+    .filter((m) => m.hasAttachments && m.unifiedItemId && porId.has(m.unifiedItemId))
+    .filter((m) => {
+      const input = porId.get(m.unifiedItemId as string);
+      if (!input) return false;
+      const doCorpo = extractDeterministic(input);
+      return !doCorpo.boleto && !doCorpo.pix;
+    })
+    .slice(0, MAX_ATTACHMENT_FETCHES);
+
+  if (candidatas.length === 0) return saida;
+
+  const contexto = buildContext(connection, keyringFromEnv());
+  for (const mensagem of candidatas) {
+    try {
+      const anexos = await conector.fetchAttachments(contexto, mensagem.providerId);
+      const lido = await extractFromAttachments(
+        anexos.map((a) => ({
+          filename: a.filename,
+          mimeType: a.mimeType,
+          size: a.size,
+          data: a.data,
+        })),
+      );
+      if (lido.text.trim()) saida.set(mensagem.unifiedItemId as string, lido);
+    } catch {
+      // Anexo que nao veio nao pode derrubar a extracao das outras.
+    }
+  }
+
+  return saida;
 }
 
 /** Sem chave configurada a extracao roda so com a camada deterministica. */

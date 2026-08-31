@@ -19,7 +19,8 @@ import type { RawEvent, RawMailbox, RawMessage } from './types';
 export interface GmailPart {
   filename?: string;
   mimeType?: string;
-  body?: { data?: string };
+  /** `attachmentId` aparece quando a parte e anexo: o dado vem numa segunda chamada. */
+  body?: { data?: string; attachmentId?: string; size?: number };
   parts?: GmailPart[];
 }
 
