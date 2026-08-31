@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
-import { desconectar, sincronizarAgora } from './actions';
+import { desconectar } from './actions';
+import { BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
 
@@ -120,7 +121,18 @@ export default async function PaginaConexoes() {
         </section>
 
         <section className="card">
-          <h2>Contas conectadas</h2>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <h2>Contas conectadas</h2>
+            <BotaoSincronizarTodas connectionIds={conexoes.map((c) => c.id)} />
+          </div>
           {conexoes.length === 0 ? (
             <p className="vazio">Nenhuma conta conectada ainda.</p>
           ) : (
@@ -156,23 +168,7 @@ export default async function PaginaConexoes() {
                       autorizar escrita →
                     </a>
                   )}
-                  <form action={sincronizarAgora.bind(null, conexao.id)}>
-                    <button
-                      type="submit"
-                      style={{
-                        marginLeft: 8,
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: '1px solid var(--border)',
-                        background: 'transparent',
-                        color: 'var(--text)',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                      }}
-                    >
-                      Sincronizar agora
-                    </button>
-                  </form>
+                  <BotaoSincronizar connectionId={conexao.id} />
                   <form action={desconectar.bind(null, conexao.id)}>
                     <button
                       type="submit"

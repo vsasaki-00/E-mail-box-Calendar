@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/db';
 import { keyringFromEnv } from '@/lib/crypto';
-import { readCredentials, runSync } from '@/core/sync/engine';
+import { readCredentials } from '@/core/sync/engine';
 import { revokeGoogleToken } from '@/lib/connectors/google-auth';
 
 /** Server Actions da pagina de conexoes: mesma logica das rotas de API, sem fetch. */
@@ -26,16 +26,8 @@ export async function desconectar(connectionId: string): Promise<void> {
   revalidatePath('/');
 }
 
-export async function sincronizarAgora(connectionId: string): Promise<void> {
-  const estados = await prisma.syncState.findMany({
-    where: { connectionId, resource: { in: ['MAIL', 'CALENDAR'] } },
-    include: { connection: true },
-  });
-
-  for (const estado of estados) {
-    await runSync(estado, new Date());
-  }
-
-  revalidatePath('/conexoes');
-  revalidatePath('/');
-}
+// A antiga action `sincronizarAgora` foi substituida pelos botoes de
+// `sync-controls.tsx`, que chamam a rota /api/connections/[id]/sync em loop
+// com progresso visivel. Uma Server Action nao serve para isso: ela roda
+// uma vez, sem feedback intermediario, e o primeiro sync real provou que
+// "sem feedback" e indistinguivel de "quebrado".

@@ -2,22 +2,31 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { agendarSyncImediato, runSync } from '@/core/sync/engine';
 
-// Sem isto a rota fica no timeout padrao do runtime (~10-15s), que nao
-// comporta o primeiro sync de uma caixa com 90 dias de historico. 60s e o
-// teto seguro do plano Hobby da Vercel; o corte continua nao sendo fatal —
-// o pageToken persiste e o proximo clique (ou o cron) retoma do ponto.
-export const maxDuration = 60;
-
 /**
  * Forca um sync agora, sem esperar o worker.
  *
- * Roda inline (nao so agenda) para dar feedback imediato no primeiro clique
- * apos conectar uma conta — esperar ate 5 minutos pelo worker na primeira
- * experiencia seria ruim. Tem timeout implicito do runtime da rota: paginas
- * grandes continuam via `pageToken` nas execucoes seguintes do worker.
+ * O motor processa UMA pagina por chamada e persiste o cursor — desenho
+ * feito para o worker, que chama em loop. Aqui o loop acontece dentro da
+ * requisicao, ate um prazo folgado abaixo do teto da funcao: cada resposta
+ * volta com o resumo do que avancou, e o navegador decide se pede mais.
  */
+
+// 60s e o teto seguro do plano Hobby da Vercel.
+export const maxDuration = 60;
+
+/** Prazo interno, com folga para a resposta sair antes do corte da funcao. */
+const PRAZO_MS = 40_000;
+
+interface ResumoRecurso {
+  resource: string;
+  outcome: 'SUCCESS' | 'PARTIAL' | 'FAILED';
+  counts: { created: number; updated: number; deleted: number };
+  errorMessage?: string;
+}
+
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const inicio = Date.now();
 
   await agendarSyncImediato(id);
 
@@ -26,9 +35,37 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     include: { connection: true },
   });
 
-  const resultados = [];
+  const resultados: ResumoRecurso[] = [];
+
   for (const estado of estados) {
-    resultados.push(await runSync(estado, new Date()));
+    const soma = { created: 0, updated: 0, deleted: 0 };
+    let resultado = await runSync(estado, new Date());
+    soma.created += resultado.counts.created;
+    soma.updated += resultado.counts.updated;
+    soma.deleted += resultado.counts.deleted;
+
+    // Continua paginando enquanto houver paginas E prazo. Um corte aqui
+    // nunca perde nada: o pageToken ja esta persistido pagina a pagina.
+    while (resultado.outcome === 'PARTIAL' && Date.now() - inicio < PRAZO_MS) {
+      const atual = await prisma.syncState.findUnique({
+        where: { id: estado.id },
+        include: { connection: true },
+      });
+      if (!atual) break;
+      resultado = await runSync(atual, new Date());
+      soma.created += resultado.counts.created;
+      soma.updated += resultado.counts.updated;
+      soma.deleted += resultado.counts.deleted;
+    }
+
+    // O resumo carrega o resultado FINAL do recurso: PARTIAL aqui significa
+    // "sobrou trabalho de verdade", e e o que manda o navegador continuar.
+    resultados.push({
+      resource: estado.resource,
+      outcome: resultado.outcome,
+      counts: soma,
+      ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
+    });
   }
 
   return NextResponse.json({ results: resultados });
