@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
-import { desconectar } from './actions';
-import { BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
+import { BotaoDesconectar, BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
 
@@ -169,23 +168,10 @@ export default async function PaginaConexoes() {
                     </a>
                   )}
                   <BotaoSincronizar connectionId={conexao.id} />
-                  <form action={desconectar.bind(null, conexao.id)}>
-                    <button
-                      type="submit"
-                      style={{
-                        marginLeft: 8,
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        border: '1px solid var(--crit)',
-                        background: 'transparent',
-                        color: 'var(--crit)',
-                        cursor: 'pointer',
-                        fontSize: 12,
-                      }}
-                    >
-                      Desconectar
-                    </button>
-                  </form>
+                  <BotaoDesconectar
+                    connectionId={conexao.id}
+                    rotuloConta={conexao.accountEmail}
+                  />
                 </div>
               );
             })

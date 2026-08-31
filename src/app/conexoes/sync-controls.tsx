@@ -145,6 +145,69 @@ export function BotaoSincronizar({ connectionId }: { connectionId: string }) {
   );
 }
 
+/**
+ * Desconectar, com confirmação e resultado visível.
+ *
+ * Era uma Server Action: apagar funciona, mas quando algo dá errado o
+ * usuário só vê a página igual. "Não funciona" era isso — nenhum caminho
+ * para saber o motivo. Aqui a falha vira texto na tela.
+ */
+export function BotaoDesconectar({
+  connectionId,
+  rotuloConta,
+}: {
+  connectionId: string;
+  rotuloConta: string;
+}) {
+  const [estado, setEstado] = useState<Estado>({ tipo: 'ocioso' });
+
+  async function executar() {
+    // Apagar o cache de uma caixa é irreversível (o próximo sync rebaixa
+    // tudo de novo, mas leva tempo). Vale uma pergunta.
+    if (!window.confirm(`Desconectar ${rotuloConta}?`)) return;
+
+    setEstado({ tipo: 'rodando', rodada: 1, itens: 0 });
+    try {
+      const resposta = await fetch(`/api/connections/${connectionId}`, { method: 'DELETE' });
+      if (!resposta.ok) {
+        const corpo = (await resposta.json().catch(() => ({}))) as { error?: string };
+        setEstado({
+          tipo: 'erro',
+          mensagem: corpo.error ?? `Falha ao desconectar (HTTP ${resposta.status})`,
+        });
+        return;
+      }
+      window.location.reload();
+    } catch (erro) {
+      setEstado({
+        tipo: 'erro',
+        mensagem: erro instanceof Error ? erro.message : 'Falha de rede ao desconectar',
+      });
+    }
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, marginLeft: 8 }}>
+      <button
+        type="button"
+        style={{
+          ...estiloBotao,
+          border: '1px solid var(--crit)',
+          color: 'var(--crit)',
+          opacity: estado.tipo === 'rodando' ? 0.6 : 1,
+        }}
+        disabled={estado.tipo === 'rodando'}
+        onClick={executar}
+      >
+        {estado.tipo === 'rodando' ? 'Desconectando…' : 'Desconectar'}
+      </button>
+      {estado.tipo === 'erro' && (
+        <span style={{ fontSize: 11, color: 'var(--crit)', maxWidth: 260 }}>{estado.mensagem}</span>
+      )}
+    </span>
+  );
+}
+
 export function BotaoSincronizarTodas({ connectionIds }: { connectionIds: string[] }) {
   const [estado, setEstado] = useState<Estado>({ tipo: 'ocioso' });
   const [posicao, setPosicao] = useState(0);

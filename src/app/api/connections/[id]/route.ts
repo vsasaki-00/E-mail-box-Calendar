@@ -20,7 +20,15 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (conexao.provider === 'GOOGLE' && conexao.secretCiphertext) {
     try {
       const credenciais = readCredentials(conexao, keyringFromEnv());
-      if (credenciais.refreshToken) await revokeGoogleToken(credenciais.refreshToken);
+      if (credenciais.refreshToken) {
+        // Prazo curto: revogar e melhor-esforco, e o provedor fora do ar nao
+        // pode impedir voce de desconectar uma conta da SUA base. Sem isto a
+        // requisicao ficaria pendurada ate o teto da funcao.
+        await Promise.race([
+          revokeGoogleToken(credenciais.refreshToken),
+          new Promise((_, rejeita) => setTimeout(() => rejeita(new Error('timeout')), 8_000)),
+        ]);
+      }
     } catch {
       // Sem credencial legivel ja nao ha o que revogar; segue para apagar o cache.
     }
