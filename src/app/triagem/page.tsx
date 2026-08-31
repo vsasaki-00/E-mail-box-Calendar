@@ -126,6 +126,11 @@ export default async function PaginaTriagem({
             correção sua ensina o sistema.
           </p>
         </div>
+        {/* O botao vive AQUI, e nao so na tela vazia: depois da primeira
+            triagem ele sumia e nao havia como classificar o que sobrou —
+            mensagem nova chega toda hora, entao "o que sobrou" e o estado
+            normal, nao a excecao. */}
+        {pendentes > 0 && totalTriado > 0 && <BotaoTriar pendentes={pendentes} />}
       </header>
 
       {totalTriado === 0 ? (
