@@ -13,8 +13,14 @@ import { useState } from 'react';
  * o progresso em voz alta até o servidor dizer "acabou".
  */
 
-/** Rodadas no máximo por clique: uma caixa gigante para de girar e avisa. */
-const MAX_RODADAS = 60;
+/**
+ * Rodadas no máximo por clique.
+ *
+ * Cada rodada é curta de propósito (o conector tem orçamento de ~12s), então
+ * a carga inicial de uma caixa grande precisa de muitas. O teto existe para
+ * uma caixa gigante parar e avisar, em vez de girar a noite inteira.
+ */
+const MAX_RODADAS = 250;
 
 interface RespostaSync {
   results?: {
@@ -99,7 +105,11 @@ async function sincronizarConexao(
     }
   }
 
-  return { itens, completo: false, erro: `Parou após ${MAX_RODADAS} rodadas — clique de novo para continuar.` };
+  return {
+    itens,
+    completo: false,
+    erro: `Pausado após ${MAX_RODADAS} rodadas e ${itens} itens — clique de novo para continuar de onde parou.`,
+  };
 }
 
 const estiloBotao = {

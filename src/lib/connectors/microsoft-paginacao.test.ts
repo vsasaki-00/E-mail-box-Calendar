@@ -67,7 +67,10 @@ function instalarGraphFalso() {
   });
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.GRAPH_RUN_BUDGET_MS;
+});
 
 describe('paginacao do Graph em execucoes curtas', () => {
   it('devolve o controle antes de esgotar as paginas, sem perder nem repetir', async () => {
@@ -108,5 +111,38 @@ describe('paginacao do Graph em execucoes curtas', () => {
     const page = await conector.fetchMessages(contexto(), {});
     expect(page.nextPageToken).toBeTruthy();
     expect(page.cursor).toBeUndefined();
+  });
+});
+
+describe('orcamento de tempo', () => {
+  it('avanca pelo menos uma pagina mesmo com orcamento zerado', async () => {
+    // Sem esta garantia, um ambiente lento faria o cliente repetir para
+    // sempre sem sincronizar nada — laco infinito com cara de progresso.
+    process.env.GRAPH_RUN_BUDGET_MS = '0';
+    instalarGraphFalso();
+
+    const page = await conector.fetchMessages(contexto(), {});
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.nextPageToken).toBeTruthy();
+  });
+
+  it('com orcamento zerado ainda termina a caixa inteira, em mais voltas', async () => {
+    process.env.GRAPH_RUN_BUDGET_MS = '0';
+    instalarGraphFalso();
+
+    const vistos: string[] = [];
+    let pageToken: string | undefined;
+    let voltas = 0;
+
+    while (voltas < 60) {
+      voltas += 1;
+      const page = await conector.fetchMessages(contexto(), { pageToken });
+      vistos.push(...page.items.map((m) => m.providerId));
+      if (!page.nextPageToken) break;
+      pageToken = page.nextPageToken;
+    }
+
+    expect(vistos).toHaveLength(TOTAL_PAGINAS * POR_PAGINA);
+    expect(new Set(vistos).size).toBe(vistos.length);
   });
 });

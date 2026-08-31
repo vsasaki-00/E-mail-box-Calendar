@@ -16,15 +16,18 @@ import { getConnector } from '@/lib/connectors/registry';
 export const maxDuration = 60;
 
 /**
- * Orcamento por requisicao. Bem abaixo dos 60s de propriedade: se a funcao
- * for cortada pela plataforma, quem responde e ela, com uma pagina de TEXTO
- * — e o cliente perde a mensagem de erro real. Terminar cedo e devolver
- * PARTIAL e sempre melhor que ser interrompido.
+ * UMA execucao por recurso, por requisicao. Sem laco aqui.
+ *
+ * O laco existia para poupar idas e vindas, mas encadeava trabalho de
+ * duracao imprevisivel e foi assim que a funcao estourou o limite
+ * (FUNCTION_INVOCATION_TIMEOUT em producao). Quando a plataforma corta,
+ * quem responde e ela — com uma pagina de texto, sem a causa. O laco de
+ * verdade vive no navegador (`sync-controls.tsx`), onde cada volta e uma
+ * requisicao curta e o progresso aparece na tela.
+ *
+ * O conector tem orcamento proprio (GRAPH_RUN_BUDGET_MS), entao cada
+ * execucao ja devolve o controle sozinha.
  */
-const PRAZO_MS = 25_000;
-
-/** Estimativa grosseira do custo de mais uma pagina, para nao comecar o que nao cabe. */
-const MARGEM_PAGINA_MS = 12_000;
 
 interface ResumoRecurso {
   resource: string;
@@ -50,7 +53,6 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 
 async function sincronizar(params: Promise<{ id: string }>): Promise<NextResponse> {
   const { id } = await params;
-  const inicio = Date.now();
 
   const conexao = await prisma.connection.findUnique({ where: { id } });
   if (!conexao) {
@@ -103,33 +105,14 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
   const resultados: ResumoRecurso[] = [];
 
   for (const estado of estados) {
-    const soma = { created: 0, updated: 0, deleted: 0 };
-    let resultado = await runSync(estado, new Date());
-    soma.created += resultado.counts.created;
-    soma.updated += resultado.counts.updated;
-    soma.deleted += resultado.counts.deleted;
+    const resultado = await runSync(estado, new Date());
 
-    // Continua paginando enquanto houver paginas E prazo. Um corte aqui
-    // nunca perde nada: o pageToken ja esta persistido pagina a pagina.
-    // Nao COMECA uma pagina que provavelmente nao termina dentro do prazo.
-    while (resultado.outcome === 'PARTIAL' && Date.now() - inicio + MARGEM_PAGINA_MS < PRAZO_MS) {
-      const atual = await prisma.syncState.findUnique({
-        where: { id: estado.id },
-        include: { connection: true },
-      });
-      if (!atual) break;
-      resultado = await runSync(atual, new Date());
-      soma.created += resultado.counts.created;
-      soma.updated += resultado.counts.updated;
-      soma.deleted += resultado.counts.deleted;
-    }
-
-    // O resumo carrega o resultado FINAL do recurso: PARTIAL aqui significa
-    // "sobrou trabalho de verdade", e e o que manda o navegador continuar.
+    // PARTIAL significa "sobrou trabalho", e e o que manda o navegador pedir
+    // a proxima volta.
     resultados.push({
       resource: estado.resource,
       outcome: resultado.outcome,
-      counts: soma,
+      counts: resultado.counts,
       ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
     });
   }

@@ -74,7 +74,23 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
  * Agora o conector devolve o controle cedo, carregando a URL de continuacao
  * — nada e refeito e nada e descartado.
  */
-const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 8);
+const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 5);
+
+/**
+ * Orcamento de TEMPO por chamada de fetch, em ms.
+ *
+ * Contar paginas nao bastou: o teto era por container, e uma caixa com
+ * quatro pastas ainda fazia 4x o trabalho previsto — o suficiente para a
+ * funcao ser cortada (FUNCTION_INVOCATION_TIMEOUT observado em producao).
+ * Tempo e a unidade certa porque e ela que a plataforma cobra, e a latencia
+ * de cada pagina varia com o tamanho da caixa.
+ */
+function orcamentoMs(): number {
+  // Lido a cada chamada, nao no carregamento do modulo: o worker local pode
+  // usar um valor generoso sem rebuild, e o teste consegue exercitar o caso
+  // do orcamento esgotado.
+  return Number(process.env.GRAPH_RUN_BUDGET_MS ?? 12_000);
+}
 const MAIL_PAGE_SIZE = 50;
 const CALENDAR_PAGE_SIZE = 100;
 
@@ -349,9 +365,30 @@ export const microsoftConnector: Connector = {
     const removidos: string[] = [];
     const tokens: Record<string, string> = {};
     let incompleto = false;
+    // Prazo COMPARTILHADO entre as pastas: um teto por pasta multiplicava o
+    // trabalho pelo numero de pastas, que foi como a funcao estourou.
+    const prazo = Date.now() + orcamentoMs();
+    let primeira = true;
 
     for (const pasta of alvo) {
-      const resultado = await fetchMessagesDaPasta(ctx, pasta.providerId, inicial[pasta.providerId]);
+      // A primeira pasta roda sempre, mesmo sem orcamento: uma execucao que
+      // nao avanca nenhuma pagina faria o cliente repetir para sempre sem
+      // progresso nenhum.
+      if (!primeira && Date.now() >= prazo) {
+        // Sem tempo para esta pasta: preserva o ponto onde ela parou, senao
+        // a proxima execucao recomecaria do zero.
+        const anterior = inicial[pasta.providerId];
+        if (anterior) tokens[pasta.providerId] = anterior;
+        incompleto = true;
+        continue;
+      }
+      primeira = false;
+      const resultado = await fetchMessagesDaPasta(
+        ctx,
+        pasta.providerId,
+        inicial[pasta.providerId],
+        prazo,
+      );
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
       if (resultado.deltaLink) tokens[pasta.providerId] = resultado.deltaLink;
@@ -383,13 +420,23 @@ export const microsoftConnector: Connector = {
     const removidos: string[] = [];
     const tokens: Record<string, string> = {};
     let incompleto = false;
+    const prazo = Date.now() + orcamentoMs();
+    let primeiro = true;
 
     for (const calendario of calendarios) {
+      if (!primeiro && Date.now() >= prazo) {
+        const anterior = inicial[calendario.providerId];
+        if (anterior) tokens[calendario.providerId] = anterior;
+        incompleto = true;
+        continue;
+      }
+      primeiro = false;
       const resultado = await fetchEventsDoCalendario(
         ctx,
         calendario.providerId,
         inicial[calendario.providerId],
         options.window,
+        prazo,
       );
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
@@ -590,6 +637,7 @@ async function fetchMessagesDaPasta(
   ctx: ConnectorContext,
   folderId: string,
   deltaLinkAnterior: string | undefined,
+  prazo: number,
 ): Promise<{ itens: RawMessage[]; removidos: string[]; deltaLink?: string; incompleto?: boolean }> {
   const itens: RawMessage[] = [];
   const removidos: string[] = [];
@@ -622,7 +670,7 @@ async function fetchMessagesDaPasta(
     url = resposta['@odata.nextLink'];
     if (resposta['@odata.deltaLink']) deltaLink = resposta['@odata.deltaLink'];
     paginas += 1;
-  } while (url && paginas < MAX_PAGES_PER_CONTAINER);
+  } while (url && paginas < MAX_PAGES_PER_CONTAINER && Date.now() < prazo);
 
   // Bateu o teto com pagina pendente: devolve o `nextLink` como cursor da
   // pasta. Ele e uma URL de continuacao opaca, consumida exatamente como o
@@ -645,6 +693,7 @@ async function fetchEventsDoCalendario(
   calendarId: string,
   deltaLinkAnterior: string | undefined,
   janela: FetchOptions['window'],
+  prazo: number,
 ): Promise<{ itens: RawEvent[]; removidos: string[]; deltaLink?: string; incompleto?: boolean }> {
   const itens: RawEvent[] = [];
   const removidos: string[] = [];
@@ -686,7 +735,7 @@ async function fetchEventsDoCalendario(
     url = resposta['@odata.nextLink'];
     if (resposta['@odata.deltaLink']) deltaLink = resposta['@odata.deltaLink'];
     paginas += 1;
-  } while (url && paginas < MAX_PAGES_PER_CONTAINER);
+  } while (url && paginas < MAX_PAGES_PER_CONTAINER && Date.now() < prazo);
 
   if (url) {
     return { itens, removidos, deltaLink: url, incompleto: true };
