@@ -781,3 +781,81 @@ mantê-lo faria a tela mostrar uma edição que não bate com o que está ali.
 - **Thread completa.** O prompt leva só a última mensagem, não a conversa
   inteira. Para a maioria das respostas basta; para uma negociação longa,
   não.
+
+---
+
+# Automação pós-sync (o worker trabalhando sozinho)
+
+Até aqui você precisava clicar em "rodar triagem" e "extrair cobranças". O
+worker agora faz os dois depois de cada sync, em **intervalo próprio** (15
+min por padrão, contra 5 min do sync): sync só custa quota do provedor,
+triagem custa dinheiro por chamada, e não há valor em reclassificar de cinco
+em cinco minutos.
+
+## O que NÃO roda sozinho
+
+**Rascunho.** Gerar resposta automaticamente para tudo é o degrau anterior a
+enviar automaticamente, e a fase 5D existe justamente para manter você no
+meio do caminho. Rascunho continua sendo um por vez, quando você pede.
+
+## Teto de gasto diário
+
+A automação gasta a cada ciclo. Sem teto, uma enxurrada de e-mail, um
+provedor devolvendo a caixa inteira depois de um cursor expirado, ou
+simplesmente a primeira sincronização de uma caixa antiga viram uma conta
+alta que você só descobre no fim do mês.
+
+| Variável | Padrão | O que limita |
+|---|---|---|
+| `AUTO_TRIAGE_DAILY_LIMIT` | 1500 | itens classificados **pelo modelo** por dia |
+| `AUTO_BILLS_DAILY_LIMIT` | 200 | cobranças que precisaram do modelo por dia |
+| `AUTOMATION_INTERVAL_SECONDS` | 900 | de quanto em quanto tempo roda |
+| `AUTO_PIPELINE` | `true` | `false` desliga tudo (o sync continua) |
+
+Três decisões dentro disso:
+
+**O consumo é derivado, não contado.** O gasto do dia sai das linhas que a
+automação realmente gravou (`source: MODEL` com data de hoje), e não de um
+contador em tabela separada. Contador próprio dessincroniza do que
+aconteceu — e um contador que mente sobre gasto é pior do que não ter
+contador.
+
+**Só o que o modelo decidiu conta.** O pré-filtro determinístico resolve boa
+parte sem gastar chamada nenhuma; incluir isso no teto faria o orçamento
+acabar sem ter havido gasto.
+
+**Há teto por ciclo além do teto diário.** Sem ele, o primeiro sync de uma
+caixa antiga queimaria o orçamento do dia inteiro numa rodada só.
+
+Um detalhe que o teste trava: valor inválido em `AUTO_TRIAGE_DAILY_LIMIT`
+(um `"muito"` digitado por engano) **cai no padrão**, nunca vira `NaN` —
+comparação com `NaN` é sempre falsa, e o teto sumiria em silêncio, que é
+exatamente o modo de falha que um teto de gasto não pode ter.
+
+E quando o orçamento acaba, o worker **avisa no log**: um sistema que para
+de trabalhar em silêncio parece um sistema quebrado.
+
+## Cobranças rodam mesmo sem chave de API
+
+A extração financeira tem camada local (boleto e PIX são aritmética), então
+ela roda com `hasApiKey: false` e sem consumir orçamento. Só o que o modelo
+faria é que não acontece — a cobrança continua aparecendo no painel, com
+valor e vencimento lidos da linha digitável.
+
+## Idempotência
+
+A triagem só pega itens sem triagem; a extração só pega cobranças sem
+extração. Rodar duas vezes seguidas não refaz trabalho nem gasta duas vezes.
+**Verificado em execução real**: segunda rodada devolveu `NADA_PENDENTE` em
+todas as caixas.
+
+## Verificado
+
+Contra o banco, no estado real deste ambiente (sem `ANTHROPIC_API_KEY`):
+
+- sem chave → triagem pula com `SEM_CHAVE_DE_API`, mas a **cobrança foi
+  extraída assim mesmo**: R$ 150,00, vencimento 24/05/2022, direto da linha
+  digitável;
+- segunda rodada → `NADA_PENDENTE` (idempotente);
+- `AUTO_PIPELINE=false` → `DESLIGADO`;
+- `AUTO_TRIAGE_DAILY_LIMIT=0` → `ORCAMENTO_ESGOTADO`.
