@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildGoogleAuthUrl, createPkcePair, mapGoogleError, GOOGLE_SCOPES } from './google';
-import { buildMicrosoftAuthUrl, mapMicrosoftError } from './microsoft';
+import { buildMicrosoftAuthUrl, mapMicrosoftError, MICROSOFT_SCOPES } from './microsoft';
 import { domainFromEmail, guessConfigForDomain, APPLE_PRESET } from './imap-caldav';
 import { allConnectors, getConnector } from './registry';
 
@@ -15,11 +16,15 @@ describe('registry', () => {
     }
   });
 
-  it('mantem todos os conectores somente leitura na fase 1', () => {
-    // Pedir escopo de escrita "para talvez usar depois" e exatamente o que a
-    // politica de seguranca proibe. Ver docs/04-seguranca.md
-    for (const connector of allConnectors()) {
-      expect(connector.capabilities.write).toBe(false);
+  it('o escopo de LEITURA continua sendo o padrão de toda conexão nova', () => {
+    // Fase 4 adicionou escrita, mas ela é um consentimento SEPARADO. Pedir
+    // escopo de escrita "para talvez usar depois" continua sendo o que a
+    // política de segurança proíbe. Ver docs/04-seguranca.md
+    for (const escopo of GOOGLE_SCOPES) {
+      expect(escopo).not.toMatch(/\.send|gmail\.modify|calendar\.events|mail\.google\.com/i);
+    }
+    for (const escopo of MICROSOFT_SCOPES) {
+      expect(escopo).not.toMatch(/ReadWrite|Mail\.Send/i);
     }
   });
 
@@ -155,12 +160,46 @@ describe('capacidade de anexo — declarada, não assumida', () => {
     expect(imapCaldavConnector.capabilities.attachments).toBe(false);
   });
 
-  it('nenhum conector ganhou capacidade de ESCRITA junto', () => {
-    // Anexo é leitura. Se algum passar a declarar write:true, é fase 4 e
-    // exige consentimento OAuth novo — este teste obriga a decisão a ser
-    // explícita.
-    for (const conector of [googleConnector, microsoftConnector, imapCaldavConnector]) {
-      expect(conector.capabilities.write).toBe(false);
+  it('IMAP/CalDAV continua sem escrever', () => {
+    // Nunca foi validado contra servidor real; declarar escrita faria o app
+    // tentar e falhar em silêncio numa caixa Apple.
+    expect(imapCaldavConnector.capabilities.write).toBe(false);
+  });
+});
+
+describe('fase 4 — escrita é do CONECTOR, permissão é da CONEXÃO', () => {
+  it('Google e Microsoft sabem escrever e implementam as ações', () => {
+    for (const conector of [googleConnector, microsoftConnector]) {
+      expect(conector.capabilities.write).toBe(true);
+      for (const metodo of [
+        'archiveMessage',
+        'unarchiveMessage',
+        'setMessageRead',
+        'setMessageLabel',
+        'respondToEvent',
+        'moveEvent',
+        'createEvent',
+        'sendReply',
+      ] as const) {
+        expect(typeof conector[metodo]).toBe('function');
+      }
     }
+  });
+
+  it('NENHUM conector implementa exclusão', () => {
+    // A ausência é a garantia. Arquivar resolve o mesmo problema e volta
+    // atrás; apagar é o único erro que você nunca descobre.
+    for (const conector of allConnectors()) {
+      const nomes = Object.keys(conector);
+      expect(nomes.filter((n) => /delete|trash|purge|destroy|erase/i.test(n))).toEqual([]);
+    }
+  });
+
+  it('a conexão nasce SEM escrita, no schema', () => {
+    // A trava real não é o catálogo de ações: é `writeEnabled` nascer falso
+    // e só mudar depois de você reautorizar aquela caixa. Se o default
+    // virar true, este teste quebra antes de qualquer caixa ser afetada.
+    const schema = readFileSync('prisma/schema.prisma', 'utf8');
+    expect(schema).toMatch(/writeEnabled\s+Boolean\s+@default\(false\)/);
   });
 });

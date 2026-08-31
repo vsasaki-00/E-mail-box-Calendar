@@ -155,6 +155,13 @@ export interface ConnectorCredentials {
   username?: string;
   password?: string;
   expiresAt?: Date;
+  /**
+   * Escopos que o provedor CONCEDEU. Pode ser menos do que foi pedido: o
+   * usuario desmarca permissoes na tela de consentimento. Guardar o
+   * concedido e o que impede o app de achar que pode escrever quando nao
+   * pode. Ver docs/08-escrita-e-acoes.md
+   */
+  grantedScopes?: string[];
 }
 
 export interface ConnectorContext {
@@ -198,6 +205,78 @@ export interface Connector {
     providerId: string,
     options?: { maxBytes?: number },
   ): Promise<RawAttachment[]>;
+
+  // --- Fase 4: escrita. Ver docs/08-escrita-e-acoes.md ---
+  //
+  // Todos opcionais e so existem quando `capabilities.write`. O nucleo
+  // consulta a capacidade antes de chamar; nunca ramifica por provedor.
+
+  /** Tira da entrada sem apagar. Reversivel por `unarchiveMessage`. */
+  archiveMessage?(ctx: ConnectorContext, providerId: string): Promise<void>;
+  unarchiveMessage?(ctx: ConnectorContext, providerId: string): Promise<void>;
+
+  setMessageRead?(ctx: ConnectorContext, providerId: string, read: boolean): Promise<void>;
+
+  /** Aplica/remove marcador. `labelId` e o id do provedor, nao o nome. */
+  setMessageLabel?(
+    ctx: ConnectorContext,
+    providerId: string,
+    labelId: string,
+    apply: boolean,
+  ): Promise<void>;
+
+  /** Responde convite. */
+  respondToEvent?(
+    ctx: ConnectorContext,
+    ref: EventRef,
+    response: 'ACCEPTED' | 'DECLINED' | 'TENTATIVE',
+  ): Promise<void>;
+
+  /** Move o evento. Devolve os horarios ANTERIORES, para o desfazer. */
+  moveEvent?(
+    ctx: ConnectorContext,
+    ref: EventRef,
+    startsAt: Date,
+    endsAt: Date,
+  ): Promise<{ previousStartsAt: Date; previousEndsAt: Date }>;
+
+  createEvent?(ctx: ConnectorContext, event: NewEvent): Promise<{ providerId: string }>;
+
+  /**
+   * Envia uma resposta. A UNICA operacao do sistema que sai da sua caixa
+   * para a de outra pessoa, e a unica sem volta.
+   */
+  sendReply?(ctx: ConnectorContext, reply: OutgoingReply): Promise<{ providerId: string }>;
+}
+
+/**
+ * Como enderecar um evento.
+ *
+ * O Google precisa do calendario junto — o id do evento sozinho nao
+ * identifica nada. O Graph nao precisa, mas receber os dois nao atrapalha,
+ * e um contrato que serve para os dois evita o nucleo ramificar por
+ * provedor.
+ */
+export interface EventRef {
+  calendarProviderId: string;
+  eventProviderId: string;
+}
+
+export interface NewEvent {
+  calendarProviderId: string;
+  title: string;
+  startsAt: Date;
+  endsAt: Date;
+  description?: string;
+  attendees?: string[];
+}
+
+export interface OutgoingReply {
+  /** Mensagem que esta sendo respondida, para manter a thread. */
+  inReplyToProviderId: string;
+  to: string[];
+  subject: string;
+  bodyText: string;
 }
 
 /** Um anexo ja baixado. `data` e o conteudo bruto. */

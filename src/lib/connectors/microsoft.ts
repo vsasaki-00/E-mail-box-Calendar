@@ -38,9 +38,24 @@ import {
 
 export { createPkcePair, type PkcePair };
 
+/** Escopos de LEITURA. Toda conexao nasce com estes. */
 export const MICROSOFT_SCOPES = [
   'Mail.Read',
   'Calendars.Read',
+  'User.Read',
+  'offline_access',
+] as const;
+
+/**
+ * Escopos de ESCRITA (fase 4). Ver docs/08-escrita-e-acoes.md
+ *
+ * `Mail.ReadWrite` cobre arquivar, marcar lido e mover pasta; `Mail.Send`
+ * cobre o envio. Nao pedimos nada alem do que as acoes do catalogo usam.
+ */
+export const MICROSOFT_WRITE_SCOPES = [
+  'Mail.ReadWrite',
+  'Mail.Send',
+  'Calendars.ReadWrite',
   'User.Read',
   'offline_access',
 ] as const;
@@ -92,7 +107,9 @@ export const microsoftCapabilities: ConnectorCapabilities = {
   incrementalSync: 'delta-token',
   push: true,
   serverSideSearch: true,
-  write: false,
+  // Fase 4. Ver a nota no conector Google: capacidade e do CONECTOR,
+  // permissao e da CONEXAO.
+  write: true,
   attachments: true,
   pollIntervalSeconds: 300,
 };
@@ -108,6 +125,8 @@ export function buildMicrosoftAuthUrl(params: {
   codeChallenge: string;
   /** "common" aceita contas pessoais (Hotmail/Outlook.com) e corporativas. */
   tenant?: string;
+  /** Pedir escopos de ESCRITA. Falso por padrao. */
+  write?: boolean;
 }): string {
   const tenant = params.tenant || 'common';
   const url = new URL(`${MICROSOFT_TOKEN_ENDPOINT_BASE}/${tenant}/oauth2/v2.0/authorize`);
@@ -115,7 +134,10 @@ export function buildMicrosoftAuthUrl(params: {
   url.searchParams.set('redirect_uri', params.redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('response_mode', 'query');
-  url.searchParams.set('scope', MICROSOFT_SCOPES.join(' '));
+  url.searchParams.set(
+    'scope',
+    (params.write ? MICROSOFT_WRITE_SCOPES : MICROSOFT_SCOPES).join(' '),
+  );
   url.searchParams.set('state', params.state);
   url.searchParams.set('code_challenge', params.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
@@ -156,6 +178,34 @@ async function graphGet<T>(
     if (valor !== undefined) alvo.searchParams.set(chave, String(valor));
   }
   return graphFetch<T>(ctx, alvo.toString(), extraHeaders);
+}
+
+/**
+ * Escrita no Graph. Um so helper para POST/PATCH: as duas rotas diferem
+ * pelo verbo, nao pelo tratamento de erro nem pela autenticacao.
+ */
+async function graphWrite<T>(
+  ctx: ConnectorContext,
+  method: 'POST' | 'PATCH',
+  path: string,
+  corpo?: unknown,
+): Promise<T> {
+  const token = await ensureMicrosoftAccessToken(ctx);
+  const response = await fetch(`${GRAPH_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(corpo === undefined ? {} : { 'Content-Type': 'application/json' }),
+    },
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+  });
+
+  if (!response.ok) {
+    throw mapMicrosoftError(response.status, response.headers.get('retry-after'));
+  }
+  // Varias rotas de acao devolvem 202/204 sem corpo.
+  const texto = await response.text();
+  return (texto ? JSON.parse(texto) : {}) as T;
 }
 
 interface GraphDeltaPage<T> {
@@ -358,7 +408,124 @@ export const microsoftConnector: Connector = {
     }
     return anexos;
   },
+
+  // --- Fase 4: escrita. Ver docs/08-escrita-e-acoes.md ---
+
+  /**
+   * Arquivar no Outlook e MOVER para a pasta Archive. A mensagem continua
+   * existindo e volta com `unarchiveMessage`.
+   */
+  async archiveMessage(ctx, providerId) {
+    await graphWrite(ctx, 'POST', `/me/messages/${encodeURIComponent(providerId)}/move`, {
+      destinationId: 'archive',
+    });
+  },
+
+  async unarchiveMessage(ctx, providerId) {
+    await graphWrite(ctx, 'POST', `/me/messages/${encodeURIComponent(providerId)}/move`, {
+      destinationId: 'inbox',
+    });
+  },
+
+  async setMessageRead(ctx, providerId, read) {
+    await graphWrite(ctx, 'PATCH', `/me/messages/${encodeURIComponent(providerId)}`, {
+      isRead: read,
+    });
+  },
+
+  /**
+   * O Outlook nao tem "label" como o Gmail: tem `categories`, que e uma
+   * lista de strings na propria mensagem. Aplicar e acrescentar a lista.
+   */
+  async setMessageLabel(ctx, providerId, labelId, apply) {
+    const atual = await graphGet<{ categories?: string[] }>(
+      ctx,
+      `/me/messages/${encodeURIComponent(providerId)}`,
+      { $select: 'categories' },
+    );
+    const existentes = atual.categories ?? [];
+    const categories = apply
+      ? [...new Set([...existentes, labelId])]
+      : existentes.filter((c) => c !== labelId);
+
+    await graphWrite(ctx, 'PATCH', `/me/messages/${encodeURIComponent(providerId)}`, {
+      categories,
+    });
+  },
+
+  async respondToEvent(ctx, ref, response) {
+    const rota = { ACCEPTED: 'accept', DECLINED: 'decline', TENTATIVE: 'tentativelyAccept' };
+    await graphWrite(
+      ctx,
+      'POST',
+      `/me/events/${encodeURIComponent(ref.eventProviderId)}/${rota[response]}`,
+      { sendResponse: true },
+    );
+  },
+
+  async moveEvent(ctx, ref, startsAt, endsAt) {
+    const caminho = `/me/events/${encodeURIComponent(ref.eventProviderId)}`;
+
+    // Le ANTES: sem o horario anterior nao ha como desfazer.
+    const atual = await graphGet<{
+      start?: { dateTime?: string; timeZone?: string };
+      end?: { dateTime?: string; timeZone?: string };
+    }>(ctx, caminho, { $select: 'start,end' });
+
+    await graphWrite(ctx, 'PATCH', caminho, {
+      start: { dateTime: startsAt.toISOString(), timeZone: 'UTC' },
+      end: { dateTime: endsAt.toISOString(), timeZone: 'UTC' },
+    });
+
+    return {
+      previousStartsAt: parseGraphDate(atual.start) ?? startsAt,
+      previousEndsAt: parseGraphDate(atual.end) ?? endsAt,
+    };
+  },
+
+  async createEvent(ctx, event) {
+    const criado = await graphWrite<{ id?: string }>(ctx, 'POST', '/me/events', {
+      subject: event.title,
+      body: { contentType: 'text', content: event.description ?? '' },
+      start: { dateTime: event.startsAt.toISOString(), timeZone: 'UTC' },
+      end: { dateTime: event.endsAt.toISOString(), timeZone: 'UTC' },
+      attendees: event.attendees?.map((email) => ({
+        emailAddress: { address: email },
+        type: 'required',
+      })),
+    });
+    return { providerId: criado.id ?? '' };
+  },
+
+  async sendReply(ctx, reply) {
+    // `createReply` monta o rascunho ja na thread certa; depois o corpo e
+    // ajustado e o rascunho e enviado. Tres chamadas, mas e o caminho que
+    // preserva a conversa — `sendMail` avulso criaria uma thread nova.
+    const rascunho = await graphWrite<{ id?: string }>(
+      ctx,
+      'POST',
+      `/me/messages/${encodeURIComponent(reply.inReplyToProviderId)}/createReply`,
+    );
+    if (!rascunho.id) throw new ConnectorError('TRANSIENT', 'O Graph nao devolveu o rascunho');
+
+    await graphWrite(ctx, 'PATCH', `/me/messages/${encodeURIComponent(rascunho.id)}`, {
+      subject: reply.subject,
+      body: { contentType: 'text', content: reply.bodyText },
+      toRecipients: reply.to.map((address) => ({ emailAddress: { address } })),
+    });
+
+    await graphWrite(ctx, 'POST', `/me/messages/${encodeURIComponent(rascunho.id)}/send`);
+    return { providerId: rascunho.id };
+  },
 };
+
+/** Data do Graph: vem sem sufixo de fuso e precisa ser tratada como UTC. */
+function parseGraphDate(valor?: { dateTime?: string; timeZone?: string }): Date | null {
+  if (!valor?.dateTime) return null;
+  const bruto = valor.dateTime.endsWith('Z') ? valor.dateTime : `${valor.dateTime}Z`;
+  const data = new Date(bruto);
+  return Number.isNaN(data.getTime()) ? null : data;
+}
 
 /** Teto por anexo. PDF de boleto tem dezenas de KB; o resto e desperdicio. */
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;

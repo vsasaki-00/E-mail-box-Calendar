@@ -367,6 +367,9 @@ export default async function TorreDeControle() {
           {dados && (
             <div className="sub">estado de {formatDateTime(dados.generatedAt, tz)}</div>
           )}
+          <a href="/acoes" className="sub" style={{ marginRight: 14 }}>
+            ações →
+          </a>
           <a href="/agenda" className="sub" style={{ marginRight: 14 }}>
             agenda →
           </a>

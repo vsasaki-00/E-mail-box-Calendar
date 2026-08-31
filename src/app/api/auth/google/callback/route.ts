@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { evaluateWriteGrant } from '@/core/actions/scopes';
 import { keyringFromEnv } from '@/lib/crypto';
 import { googleCapabilities } from '@/lib/connectors/google';
 import {
@@ -28,6 +29,8 @@ function paginaDeErro(titulo: string, detalhe: string): NextResponse {
 </body></html>`;
   return new NextResponse(html, { status: 400, headers: { 'Content-Type': 'text/html' } });
 }
+
+const PROVIDER = 'GOOGLE' as const;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -90,6 +93,21 @@ export async function GET(request: Request) {
   });
 
   await saveCredentials(conexao.id, credenciais, keyringFromEnv());
+
+  // Escrita (fase 4): decide pelo que o provedor CONCEDEU, nao pelo que
+  // pedimos. O usuario pode desmarcar permissoes na tela de consentimento e
+  // o fluxo ainda assim volta com sucesso. Ver docs/08-escrita-e-acoes.md
+  const concessao = evaluateWriteGrant(PROVIDER, credenciais.grantedScopes);
+  await prisma.connection.update({
+    where: { id: conexao.id },
+    data: {
+      grantedScopes: concessao.granted,
+      // Um fluxo de leitura nunca DESLIGA a escrita ja concedida: voce
+      // reconectar uma caixa para arrumar o sync nao pode revogar em
+      // silencio uma permissao que voce deu de proposito.
+      ...(estado.requestWrite ? { writeEnabled: concessao.enabled } : {}),
+    },
+  });
 
   // Um SyncState por recurso que o conector declara suportar. Sem cursor:
   // a proxima execucao faz full sync.

@@ -151,17 +151,27 @@ sem você abrir mais nada.
 
 ---
 
-## Fase 4 — Escrita e comando
+## Fase 4 — Escrita e comando ✅
 
-Aqui o app deixa de ser observador. **Novo consentimento OAuth por conexão**,
-com escopos de escrita.
+Racional completo, com as travas e os bugs encontrados:
+[`08-escrita-e-acoes.md`](08-escrita-e-acoes.md).
 
-- Ações em e-mail: arquivar, marcar lido, aplicar label, responder, enviar.
-- Ações em calendário: aceitar/recusar convite, criar e mover evento.
-- Fila de ações com confirmação e log de auditoria de tudo que o app escreveu.
-- Desfazer para ações reversíveis.
+O app deixa de ser observador. **Consentimento OAuth novo e por conexão** —
+`writeEnabled` nasce falso e só muda depois de você reautorizar aquela
+caixa, e quem decide é o que o provedor **concedeu**, não o que pedimos.
 
-**Critério de aceite**: triar a manhã inteira sem sair do app.
+- Ações em e-mail: arquivar, marcar lido, aplicar marcador, enviar ✅
+- Ações em calendário: aceitar/recusar/talvez, criar e mover evento ✅
+- Fila de ações e log de auditoria na **mesma lista**, com desfazer ✅ —
+  tela `/acoes`
+- **Não existe ação de excluir.** A ausência é a garantia.
+- O agente propõe o reversível; enviar e criar evento são só seus, com
+  confirmação em duas etapas.
+- IMAP/CalDAV continua sem escrever (nunca validado contra servidor real).
+
+**Critério de aceite**: triar a manhã inteira sem sair do app. **Não
+verificado** — nenhuma escrita real aconteceu neste ambiente, por falta de
+conta conectada.
 
 ---
 

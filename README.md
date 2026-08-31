@@ -42,7 +42,8 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **Agenda unificada** (semana e mês, cópias colapsadas, conflitos entre contas) | ✅ `src/core/agenda/` + `src/app/agenda/` |
 | **Datas no seu fuso, não no do servidor** | ✅ `src/core/time/zone.ts` |
 | **Busca unificada** (todas as caixas e calendários) | ✅ `src/core/search/` + `src/app/busca/` |
-| **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
+| **Ações de escrita** (arquivar, marcar lido, rotular, RSVP, criar/mover evento, enviar) | ✅ `src/core/actions/` + `src/app/acoes/` — consentimento por caixa |
+| **Fila de ações + log de auditoria + desfazer** | ✅ `src/app/acoes/` |
 
 Os quatro conectores estão implementados. Google e Microsoft tiveram o fluxo
 OAuth validado contra os servidores reais de cada provedor. O conector
@@ -157,7 +158,7 @@ com a mensagem real do servidor.
 ### Outros comandos
 
 ```bash
-pnpm test        # 464 testes de núcleo, sem banco
+pnpm test        # 498 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

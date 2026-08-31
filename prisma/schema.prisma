@@ -93,6 +93,7 @@ model User {
   triages        ItemTriage[]
   bills          BillExtraction[]
   drafts         Draft[]
+  actions        ActionRequest[]
   triageFeedback TriageFeedback[]
 }
 
@@ -124,6 +125,16 @@ model Connection {
   /// Vencimento do access token, para refresh proativo.
   tokenExpiresAt   DateTime?
 
+  /// Escrita liberada NESTA conexao? Padrao falso, e so muda depois de
+  /// voce reautorizar esta caixa especificamente. Ligar escrita em todas
+  /// as caixas de uma vez seria pedir um consentimento que voce nao deu.
+  writeEnabled  Boolean @default(false)
+  /// Escopos que o provedor concedeu de fato — pode ser MENOS do que
+  /// pedimos. Guardar o concedido, e nao o pedido, evita o app achar que
+  /// pode escrever quando o usuario desmarcou a permissao na tela do
+  /// Google.
+  grantedScopes Json    @default("[]")
+
   status           ConnectionStatus @default(ACTIVE)
   lastSyncAt       DateTime?
   lastErrorAt      DateTime?
@@ -139,6 +150,7 @@ model Connection {
   events          CalendarEvent[]
   syncStates      SyncState[]
   syncRuns        SyncRun[]
+  actions         ActionRequest[]
   mailboxProfile  MailboxProfile?
   voiceProfile    VoiceProfile?
 
@@ -311,6 +323,9 @@ model OAuthState {
   provider      String
   codeVerifier  String
   redirectAfter String?
+  /// Este fluxo esta pedindo escopos de ESCRITA? Precisa atravessar a
+  /// ida-e-volta do OAuth, senao o callback nao sabe o que foi pedido.
+  requestWrite  Boolean  @default(false)
   createdAt     DateTime @default(now())
   expiresAt     DateTime
 
@@ -444,6 +459,53 @@ enum TriageSource {
   MODEL
   /// Correcao explicita do usuario. Tem precedencia sobre tudo.
   USER
+}
+
+// ---------------------------------------------------------------------------
+// Fase 4 — Escrita e comando. Ver docs/08-escrita-e-acoes.md
+// ---------------------------------------------------------------------------
+
+/// O que o app sabe FAZER numa caixa.
+///
+/// Note o que NAO existe aqui: nenhuma acao de EXCLUIR. A ausencia e
+/// deliberada, igual ao `DraftStatus` nao ter "enviado" antes da fase 4 —
+/// um enum com DELETE convidaria a primeira pessoa apressada a ligar a
+/// exclusao automatica, e apagar e o unico erro que voce nunca descobre.
+/// Arquivar resolve o mesmo problema e e reversivel.
+enum ActionKind {
+  ARCHIVE
+  UNARCHIVE
+  MARK_READ
+  MARK_UNREAD
+  ADD_LABEL
+  REMOVE_LABEL
+  EVENT_ACCEPT
+  EVENT_DECLINE
+  EVENT_TENTATIVE
+  EVENT_CREATE
+  EVENT_MOVE
+  /// A unica acao IRREVERSIVEL do sistema. Exige confirmacao propria e
+  /// nunca acontece em lote nem automaticamente.
+  SEND_REPLY
+}
+
+enum ActionStatus {
+  /// Proposta, esperando voce confirmar.
+  PENDING
+  /// Voce confirmou; ainda nao executou.
+  CONFIRMED
+  DONE
+  FAILED
+  /// Desfeita por voce. So para acoes reversiveis.
+  UNDONE
+  CANCELLED
+}
+
+/// Quem pediu a acao. Guardar isso e o que permite auditar depois "o que
+/// o agente fez sozinho" separado de "o que eu mandei fazer".
+enum ActionActor {
+  USER
+  AGENT
 }
 
 /// Estado do rascunho. NAO EXISTE estado "enviado": a fase 5D nao envia,
@@ -697,6 +759,53 @@ model Draft {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, createdAt])
+}
+
+/// Uma acao de escrita: fila de confirmacao E log de auditoria na mesma
+/// linha. Ver docs/08-escrita-e-acoes.md
+///
+/// Sao a mesma coisa de proposito: um log separado da fila diverge dela, e
+/// ai voce tem dois registros discordando sobre o que o app fez na sua
+/// caixa. `previousState` guarda o estado ANTES, que e o que torna o
+/// desfazer possivel — sem ele, "desfazer" seria um chute.
+model ActionRequest {
+  id           String @id @default(cuid())
+  userId       String
+  connectionId String
+
+  kind   ActionKind
+  status ActionStatus @default(PENDING)
+  actor  ActionActor  @default(USER)
+
+  /// Item unificado alvo, quando existe.
+  unifiedItemId String?
+  /// Id do objeto no provedor (mensagem ou evento).
+  providerId    String
+  /// Parametros da acao (nome do label, novo horario, corpo da resposta).
+  params        Json    @default("{}")
+
+  /// Estado antes de executar, para desfazer. Null quando irreversivel.
+  previousState Json?
+  /// Da para desfazer? Congelado no momento do pedido.
+  reversible    Boolean @default(true)
+
+  /// Uma frase em portugues do que a acao faz. Gravada junto para o log de
+  /// auditoria continuar legivel mesmo se a regra mudar depois.
+  description String
+
+  error       String?
+  confirmedAt DateTime?
+  executedAt  DateTime?
+  undoneAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@index([connectionId, executedAt])
 }
 
 /// Correcao do usuario. A informacao mais valiosa do sistema: sem isso o

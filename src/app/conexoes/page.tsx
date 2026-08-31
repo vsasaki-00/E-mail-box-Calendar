@@ -135,6 +135,21 @@ export default async function PaginaConexoes() {
                     </span>
                   </span>
                   <span className={`pill ${pill.classe}`}>{pill.texto}</span>
+                  {/* Escrita e por CAIXA, e o rotulo diz em qual modo ela
+                      esta. Somente-leitura nao e um aviso: e o padrao. */}
+                  <span className={`pill ${conexao.writeEnabled ? 'warn' : ''}`}>
+                    {conexao.writeEnabled ? 'escrita autorizada' : 'somente leitura'}
+                  </span>
+                  {conexao.provider !== 'IMAP_CALDAV' && !conexao.writeEnabled && (
+                    <a
+                      href={`/api/auth/${conexao.provider.toLowerCase()}/start?write=1`}
+                      className="pill"
+                      style={{ textDecoration: 'none' }}
+                      title="Abre a tela do provedor pedindo permissão de escrita nesta caixa"
+                    >
+                      autorizar escrita →
+                    </a>
+                  )}
                   <form action={sincronizarAgora.bind(null, conexao.id)}>
                     <button
                       type="submit"

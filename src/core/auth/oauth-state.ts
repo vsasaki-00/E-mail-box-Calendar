@@ -16,6 +16,8 @@ export async function criarOAuthState(params: {
   provider: 'GOOGLE' | 'MICROSOFT';
   codeVerifier: string;
   redirectAfter?: string;
+  /** Fluxo de upgrade para escrita (fase 4). */
+  requestWrite?: boolean;
 }): Promise<string> {
   const state = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + TTL_MINUTOS * 60_000);
@@ -25,6 +27,7 @@ export async function criarOAuthState(params: {
       state,
       provider: params.provider,
       codeVerifier: params.codeVerifier,
+      requestWrite: params.requestWrite ?? false,
       redirectAfter: params.redirectAfter,
       expiresAt,
     },
@@ -39,7 +42,13 @@ export async function criarOAuthState(params: {
  */
 export async function consumirOAuthState(
   state: string,
-): Promise<{ provider: 'GOOGLE' | 'MICROSOFT'; codeVerifier: string; redirectAfter?: string } | null> {
+): Promise<{
+  provider: 'GOOGLE' | 'MICROSOFT';
+  codeVerifier: string;
+  redirectAfter?: string;
+  /** Este fluxo pediu escopos de escrita? Ver docs/08-escrita-e-acoes.md */
+  requestWrite: boolean;
+} | null> {
   const registro = await prisma.oAuthState.findUnique({ where: { state } });
   if (!registro) return null;
 
@@ -51,6 +60,7 @@ export async function consumirOAuthState(
     provider: registro.provider as 'GOOGLE' | 'MICROSOFT',
     codeVerifier: registro.codeVerifier,
     redirectAfter: registro.redirectAfter ?? undefined,
+    requestWrite: registro.requestWrite,
   };
 }
 

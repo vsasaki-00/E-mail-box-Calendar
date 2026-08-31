@@ -36,10 +36,33 @@ import {
 
 export { GOOGLE_TOKEN_ENDPOINT, mapGoogleError };
 
-/** Fase 1 e somente leitura. Escrita (gmail.modify) entra na fase 4. */
+/**
+ * Escopos de LEITURA. E com estes que toda conexao nasce.
+ *
+ * Continuam sendo o padrao mesmo depois da fase 4: escrita e um
+ * consentimento separado, por caixa, e quem nao pedir continua com uma
+ * conexao que nao consegue escrever nem por engano.
+ */
 export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/userinfo.email',
+] as const;
+
+/**
+ * Escopos de ESCRITA (fase 4). Ver docs/08-escrita-e-acoes.md
+ *
+ * `gmail.modify` e nao `mail.google.com`: o primeiro permite arquivar,
+ * marcar lido, aplicar label e ENVIAR, mas **nao permite excluir
+ * definitivamente**. O escopo mais amplo daria o poder de apagar, que este
+ * app nao usa e por isso nao pede — pedir permissao que nao se usa e como
+ * deixar a chave reserva embaixo do tapete.
+ */
+export const GOOGLE_WRITE_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/userinfo.email',
 ] as const;
 
@@ -62,7 +85,10 @@ export const googleCapabilities: ConnectorCapabilities = {
   incrementalSync: 'history-api',
   push: true,
   serverSideSearch: true,
-  write: false,
+  // Fase 4. A capacidade existir NAO significa que uma conexao pode
+  // escrever: cada conexao carrega o proprio `writeEnabled`, que so fica
+  // verdadeiro depois de voce reautorizar aquela caixa.
+  write: true,
   attachments: true,
   pollIntervalSeconds: 300,
 };
@@ -82,12 +108,20 @@ export function buildGoogleAuthUrl(params: {
   codeChallenge: string;
   /** Sugere a conta na tela de consentimento, util com varias contas Google. */
   loginHint?: string;
+  /**
+   * Pedir escopos de ESCRITA. Falso por padrao — de proposito: um flag que
+   * precisa ser ligado explicitamente nao vira escrita por acidente.
+   */
+  write?: boolean;
 }): string {
   const url = new URL(AUTH_ENDPOINT);
   url.searchParams.set('client_id', params.clientId);
   url.searchParams.set('redirect_uri', params.redirectUri);
   url.searchParams.set('response_type', 'code');
-  url.searchParams.set('scope', GOOGLE_SCOPES.join(' '));
+  url.searchParams.set(
+    'scope',
+    (params.write ? GOOGLE_WRITE_SCOPES : GOOGLE_SCOPES).join(' '),
+  );
   url.searchParams.set('state', params.state);
   url.searchParams.set('code_challenge', params.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
@@ -116,6 +150,38 @@ async function googleGet<T>(
   const token = await ensureGoogleAccessToken(ctx);
   const response = await fetch(alvo, {
     headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!response.ok) {
+    throw mapGoogleError(response.status, response.headers.get('retry-after'));
+  }
+  return (await response.json()) as T;
+}
+
+/** POST autenticado. So usado pelas acoes de escrita da fase 4. */
+async function googlePost<T>(ctx: ConnectorContext, url: string, corpo: unknown): Promise<T> {
+  const token = await ensureGoogleAccessToken(ctx);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
+  });
+
+  if (!response.ok) {
+    throw mapGoogleError(response.status, response.headers.get('retry-after'));
+  }
+  // Algumas rotas devolvem 204 sem corpo.
+  const texto = await response.text();
+  return (texto ? JSON.parse(texto) : {}) as T;
+}
+
+/** PATCH autenticado, para mover evento. */
+async function googlePatch<T>(ctx: ConnectorContext, url: string, corpo: unknown): Promise<T> {
+  const token = await ensureGoogleAccessToken(ctx);
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
   });
 
   if (!response.ok) {
@@ -296,7 +362,137 @@ export const googleConnector: Connector = {
     }
     return anexos;
   },
+
+  // --- Fase 4: escrita. Ver docs/08-escrita-e-acoes.md ---
+
+  /**
+   * Arquivar no Gmail e remover o label INBOX. A mensagem continua
+   * existindo e volta com `unarchiveMessage` — nada e apagado.
+   */
+  async archiveMessage(ctx, providerId) {
+    await googlePost(ctx, `${GMAIL_BASE}/messages/${encodeURIComponent(providerId)}/modify`, {
+      removeLabelIds: ['INBOX'],
+    });
+  },
+
+  async unarchiveMessage(ctx, providerId) {
+    await googlePost(ctx, `${GMAIL_BASE}/messages/${encodeURIComponent(providerId)}/modify`, {
+      addLabelIds: ['INBOX'],
+    });
+  },
+
+  async setMessageRead(ctx, providerId, read) {
+    // No Gmail "nao lido" e a PRESENCA do label UNREAD.
+    await googlePost(ctx, `${GMAIL_BASE}/messages/${encodeURIComponent(providerId)}/modify`, {
+      [read ? 'removeLabelIds' : 'addLabelIds']: ['UNREAD'],
+    });
+  },
+
+  async setMessageLabel(ctx, providerId, labelId, apply) {
+    await googlePost(ctx, `${GMAIL_BASE}/messages/${encodeURIComponent(providerId)}/modify`, {
+      [apply ? 'addLabelIds' : 'removeLabelIds']: [labelId],
+    });
+  },
+
+  async respondToEvent(ctx, ref, response) {
+    const mapa = { ACCEPTED: 'accepted', DECLINED: 'declined', TENTATIVE: 'tentative' } as const;
+    const calendario = ref.calendarProviderId;
+    const evento = ref.eventProviderId;
+
+    // O Google nao tem rota de RSVP: e um PATCH marcando o proprio usuario
+    // como respondido dentro da lista de participantes.
+    const atual = await googleGet<{ attendees?: { email?: string; self?: boolean }[] }>(
+      ctx,
+      `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendario)}/events/${encodeURIComponent(evento)}`,
+    );
+
+    const attendees = (atual.attendees ?? []).map((a) =>
+      a.self ? { ...a, responseStatus: mapa[response] } : a,
+    );
+
+    await googlePatch(
+      ctx,
+      `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendario)}/events/${encodeURIComponent(evento)}`,
+      { attendees },
+    );
+  },
+
+  async moveEvent(ctx, ref, startsAt, endsAt) {
+    const calendario = ref.calendarProviderId;
+    const evento = ref.eventProviderId;
+    const rota = `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendario)}/events/${encodeURIComponent(evento)}`;
+
+    // Le ANTES de mover: sem o horario anterior nao ha como desfazer.
+    const atual = await googleGet<{
+      start?: { dateTime?: string };
+      end?: { dateTime?: string };
+    }>(ctx, rota);
+
+    await googlePatch(ctx, rota, {
+      start: { dateTime: startsAt.toISOString() },
+      end: { dateTime: endsAt.toISOString() },
+    });
+
+    return {
+      previousStartsAt: new Date(atual.start?.dateTime ?? startsAt),
+      previousEndsAt: new Date(atual.end?.dateTime ?? endsAt),
+    };
+  },
+
+  async createEvent(ctx, event) {
+    const criado = await googlePost<{ id?: string }>(
+      ctx,
+      `${CALENDAR_BASE}/calendars/${encodeURIComponent(event.calendarProviderId)}/events`,
+      {
+        summary: event.title,
+        description: event.description,
+        start: { dateTime: event.startsAt.toISOString() },
+        end: { dateTime: event.endsAt.toISOString() },
+        attendees: event.attendees?.map((email) => ({ email })),
+      },
+    );
+    return { providerId: criado.id ?? '' };
+  },
+
+  async sendReply(ctx, reply) {
+    // O Gmail recebe a mensagem inteira em RFC 5322, codificada em
+    // base64url. `threadId` e o que mantem a resposta na mesma conversa.
+    const original = await googleGet<{ threadId?: string; payload?: GmailPart }>(
+      ctx,
+      `${GMAIL_BASE}/messages/${encodeURIComponent(reply.inReplyToProviderId)}`,
+      { format: 'metadata' },
+    );
+
+    const bruto = Buffer.from(montarRfc822(reply), 'utf8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const enviado = await googlePost<{ id?: string }>(ctx, `${GMAIL_BASE}/messages/send`, {
+      raw: bruto,
+      threadId: original.threadId,
+    });
+    return { providerId: enviado.id ?? '' };
+  },
 };
+
+/** Monta a mensagem RFC 5322 do envio. */
+function montarRfc822(reply: {
+  to: string[];
+  subject: string;
+  bodyText: string;
+  inReplyToProviderId: string;
+}): string {
+  return [
+    `To: ${reply.to.join(', ')}`,
+    `Subject: ${reply.subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    '',
+    reply.bodyText,
+  ].join('\r\n');
+}
 
 /** Limite padrao por anexo. Ver docs/07: PDF de boleto tem dezenas de KB. */
 export const DEFAULT_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;

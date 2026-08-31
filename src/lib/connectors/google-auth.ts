@@ -19,6 +19,13 @@ interface TokenResponse {
   refresh_token?: string;
   expires_in: number;
   token_type: string;
+  /**
+   * Escopos que o Google CONCEDEU de fato — pode ser menos do que pedimos,
+   * porque o usuario pode desmarcar permissoes na tela de consentimento.
+   * Confiar no que pedimos, e nao no que veio, faria o app achar que pode
+   * escrever quando nao pode.
+   */
+  scope?: string;
 }
 
 export interface GoogleOAuthConfig {
@@ -68,6 +75,7 @@ function toCredentials(token: TokenResponse, refreshAnterior?: string): Connecto
     // obrigaria o usuario a reautorizar a cada hora.
     refreshToken: token.refresh_token ?? refreshAnterior,
     expiresAt: new Date(Date.now() + token.expires_in * 1_000),
+    grantedScopes: token.scope ? token.scope.split(' ').filter(Boolean) : undefined,
   };
 }
 

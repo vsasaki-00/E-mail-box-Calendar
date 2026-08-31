@@ -12,7 +12,10 @@ import { criarOAuthState, limparOAuthStatesExpirados } from '@/core/auth/oauth-s
  * no banco (ver core/auth/oauth-state.ts), nao em cookie: o verifier nunca
  * pode aparecer no navegador.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  // `?write=1` pede os escopos de ESCRITA (fase 4). Sem o parametro, o
+  // fluxo continua sendo o de leitura — escrita nunca acontece por padrao.
+  const pedeEscrita = new URL(request.url).searchParams.get('write') === '1';
   let config;
   try {
     config = googleOAuthConfigFromEnv();
@@ -34,7 +37,8 @@ export async function GET() {
   const state = await criarOAuthState({
     provider: 'GOOGLE',
     codeVerifier: verifier,
-    redirectAfter: '/',
+    redirectAfter: '/conexoes',
+    requestWrite: pedeEscrita,
   });
 
   const url = buildGoogleAuthUrl({
@@ -42,6 +46,7 @@ export async function GET() {
     redirectUri: config.redirectUri,
     state,
     codeChallenge: challenge,
+    write: pedeEscrita,
     loginHint: usuario.email !== 'owner@local' ? usuario.email : undefined,
   });
 
