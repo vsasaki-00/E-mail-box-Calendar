@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { agendarSyncImediato, runSync } from '@/core/sync/engine';
+import { runSync } from '@/core/sync/engine';
+import { escolherProximoRecurso } from '@/core/sync/escolha-recurso';
 import { getConnector } from '@/lib/connectors/registry';
 
 /**
@@ -86,8 +87,6 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
     });
   }
 
-  await agendarSyncImediato(id);
-
   const estados = await prisma.syncState.findMany({
     where: { connectionId: id, resource: { in: ['MAIL', 'CALENDAR'] } },
     include: { connection: true },
@@ -106,13 +105,17 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
 
   // UM recurso por requisicao. Rodar e-mail e calendario juntos somava dois
   // ciclos de busca MAIS duas gravacoes no banco dentro do mesmo limite de
-  // funcao — e era o que ainda estourava o tempo. O navegador repete, entao
+  // funcao — e era o que estourava o tempo. O navegador repete, entao
   // dividir aqui nao perde nada alem de uma ida e volta.
-  // `nextRunAt` nulo = nunca agendado, entao vai na frente.
-  const quando = (d: Date | null) => (d ? d.getTime() : 0);
-  const [primeiro, ...resto] = [...estados].sort(
-    (a, b) => quando(a.nextRunAt) - quando(b.nextRunAt),
-  );
+  //
+  // A escolha e por `lastSyncAt`, e NAO por `nextRunAt`: este endpoint
+  // costumava chamar `agendarSyncImediato` primeiro, que zera o nextRunAt
+  // de TODOS os recursos para o mesmo instante. Com empate, a ordem da
+  // consulta decidia — e-mail sempre ganhava, e o CALENDARIO NUNCA RODAVA.
+  // Quem nunca sincronizou vai na frente; depois, o mais atrasado. Assim os
+  // recursos se alternam sozinhos.
+  const primeiro = escolherProximoRecurso(estados);
+  const resto = estados.filter((e) => e.id !== primeiro?.id);
 
   if (primeiro) {
     const resultado = await runSync(primeiro, new Date());
