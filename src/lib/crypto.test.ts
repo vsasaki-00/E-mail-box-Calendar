@@ -119,3 +119,20 @@ describe('safeEquals', () => {
     expect(safeEquals('abc', 'abcdef')).toBe(false);
   });
 });
+
+describe('chave trocada sem reconectar', () => {
+  it('explica o que houve e o que fazer, em vez do erro cru do AES-GCM', () => {
+    // Cenario real: trocar a MASTER_ENCRYPTION_KEY mantendo o mesmo keyId.
+    // A checagem de keyId passa e o AES-GCM falha com "Unsupported state or
+    // unable to authenticate data" — que nao diz nada a quem le o log.
+    const antiga = { currentKeyId: 'k1', keys: { k1: randomBytes(32) } };
+    const nova = { currentKeyId: 'k1', keys: { k1: randomBytes(32) } };
+
+    const cifrado = encryptSecret('token-de-acesso', antiga);
+
+    expect(() => decryptSecret(cifrado, nova)).toThrow(/outra MASTER_ENCRYPTION_KEY/);
+    expect(() => decryptSecret(cifrado, nova)).toThrow(/reconecte esta conta/);
+    // E continua funcionando com a chave certa.
+    expect(decryptSecret(cifrado, antiga)).toBe('token-de-acesso');
+  });
+});

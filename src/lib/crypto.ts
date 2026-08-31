@@ -99,12 +99,29 @@ export function decryptSecret(secret: EncryptedSecret, keyring: Keyring): string
     );
   }
 
-  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(secret.iv, 'base64'));
-  decipher.setAuthTag(Buffer.from(secret.tag, 'base64'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(secret.ciphertext, 'base64')),
-    decipher.final(),
-  ]).toString('utf8');
+  try {
+    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(secret.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(secret.tag, 'base64'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(secret.ciphertext, 'base64')),
+      decipher.final(),
+    ]).toString('utf8');
+  } catch {
+    /*
+     * O AES-GCM falha aqui quando a chave nao e a que cifrou — tipicamente
+     * depois de trocar a MASTER_ENCRYPTION_KEY sem reconectar as contas. O
+     * `keyId` nao pega esse caso: ele continua "k1" nos dois lados, so o
+     * VALOR da chave mudou.
+     *
+     * O erro cru do Node ("Unsupported state or unable to authenticate
+     * data") nao diz nem o que houve nem o que fazer. Este diz as duas
+     * coisas, e nao repete nada do segredo.
+     */
+    throw new Error(
+      'Credenciais cifradas com outra MASTER_ENCRYPTION_KEY. ' +
+        'Ou restaure a chave anterior, ou reconecte esta conta em /conexoes.',
+    );
+  }
 }
 
 /** Precisa ser reescrito com a chave corrente? Usado pelo job de rotacao. */
