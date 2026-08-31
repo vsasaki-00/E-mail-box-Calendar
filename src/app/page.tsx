@@ -125,7 +125,9 @@ function Painel({ dados }: { dados: ControlTowerData }) {
         </section>
 
         <section className="card">
-          <h2>Agenda de hoje</h2>
+          <h2>
+            <a href="/agenda" style={{ color: 'inherit' }}>Agenda de hoje</a>
+          </h2>
           <div className="metric">{dados.timeline.length}</div>
           <div className="metric-label">compromissos somando todas as contas</div>
           {dados.focusWindows.length > 0 && (
@@ -359,6 +361,9 @@ export default async function TorreDeControle() {
           {dados && (
             <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
           )}
+          <a href="/agenda" className="sub" style={{ marginRight: 14 }}>
+            agenda →
+          </a>
           <a href="/busca" className="sub" style={{ marginRight: 14 }}>
             busca →
           </a>

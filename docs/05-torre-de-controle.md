@@ -151,3 +151,77 @@ dia.
 **Métricas semanais de atenção.** Sem histórico de uso real, seria um
 gráfico bonito desenhado sobre dados de demonstração. Faz sentido depois de
 algumas semanas com contas de verdade conectadas.
+
+---
+
+# Agenda unificada (`/agenda`)
+
+## O que já existia, e o que faltava
+
+A unificação de calendário **não começou agora** — o núcleo dela é de fases
+anteriores e está em produção no código desde a fase 2:
+
+- **Deduplicação por `iCalUID`** (RFC 5545), o identificador que é estável
+  entre provedores. O mesmo convite recebido no Google, no Microsoft e no
+  iCloud tem o mesmo UID, então vira **um** item. A chave inclui o horário
+  de início, senão uma série recorrente inteira colapsaria em uma linha só.
+- **Fallback** para quando não há UID: título normalizado + organizador +
+  horário exato.
+- **Detecção de conflito entre contas** (`findConflicts`), que ignora de
+  propósito os pares que são a mesma reunião vista de duas caixas — senão
+  todo convite recebido em duas contas viraria um falso conflito.
+- **Janelas de foco** (`findFocusWindows`): os buracos de 90min+ no
+  expediente, calculados depois de fundir os intervalos ocupados.
+- **`buildTimeline`**, que colapsa as cópias em uma linha por reunião.
+
+O que faltava era **a tela além de "hoje"**. A Torre mostrava a agenda do
+dia; não havia como olhar a semana, navegar, ou filtrar por conta.
+
+## A tela
+
+Semana começando na **segunda** — é a semana útil que você olha para
+decidir agenda de trabalho. Um teste trava o erro clássico: `getDay()` do
+domingo é 0, e uma implementação ingênua faz o domingo pular para a semana
+seguinte.
+
+Cada dia mostra os compromissos já colapsados, com **uma bolinha por
+conta**. Quando o mesmo compromisso existe em mais de uma caixa, a linha
+diz explicitamente "em 2 contas: Pessoal, Trabalho" — a deduplicação nunca
+esconde, ela agrupa.
+
+O resumo da semana traz a métrica que prova que a unificação está servindo
+para alguma coisa: **"1 cópia colapsada — você veria 5 linhas sem a
+unificação"**.
+
+Conflitos entre contas diferentes ganham selo no dia e destaque na linha. O
+conflito é calculado sobre as **cópias**, não sobre as linhas já
+colapsadas: é a comparação entre contas diferentes que interessa.
+
+## Duas coisas que os testes travaram
+
+**Evento de vários dias aparece em todos os dias que cobre.** Uma viagem de
+terça a quinta precisa aparecer nos três dias; mostrar só no dia de início
+faria a quarta-feira parecer livre. A pertinência ao dia é por
+**sobreposição**, não por "começa neste dia".
+
+**"Hoje" é o instante real, não a semana que você está olhando.** Bug
+encontrado navegando na tela: `loadAgenda` recebia uma única data que servia
+para escolher a semana *e* para marcar o dia atual, então ao abrir a semana
+passada o dia equivalente daquela semana ganhava o selo "hoje". Agora são
+dois parâmetros distintos, com teste de regressão.
+
+## Verificado
+
+Contra os dados de demonstração, que foram montados justamente para este
+cenário: o mesmo convite em duas contas virou **uma linha com duas contas**
+(e não um conflito), a reunião do Microsoft sobrepondo a consulta do Google
+virou **um conflito entre contas**, e as janelas livres do dia saíram
+corretas (11:00–14:00 e 16:00–20:00).
+
+## O que ainda não tem
+
+- **Visão de mês** e visão de dia com grade de horas. Hoje é lista por dia.
+- **Fuso horário explícito**: os horários são renderizados no fuso do
+  navegador. Para quem viaja, falta mostrar o fuso do evento.
+- Qualquer **ação** sobre a agenda (aceitar convite, criar, mover) — isso é
+  fase 4, e exige consentimento OAuth novo com escopo de escrita.

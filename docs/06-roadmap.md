@@ -127,6 +127,10 @@ completa), não específica do conector Microsoft.
 ## Fase 3 — Torre de Controle completa ✅
 
 - Detecção de conflitos de agenda entre contas ✅
+- **Agenda unificada por semana** ✅ — `/agenda`, com navegação, filtro por
+  conta, cópias colapsadas por `iCalUID`, conflitos entre contas e janelas
+  livres. O núcleo da unificação já existia desde a fase 2; faltava a tela
+  além de "hoje".
 - Backlog de triagem e **SLA de resposta por caixa** ✅ — o prazo muda por
   negócio (caixa comercial nasce com 8h, `Pessoais` com 72h), e urgente
   encurta pela metade. Substitui "não lidos" como métrica da Torre.
