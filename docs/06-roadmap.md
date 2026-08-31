@@ -250,6 +250,88 @@ Princípios inegociáveis desta fase:
 
 ---
 
+## Fase 7 — Módulo financeiro completo 📌 (pedido registrado, não iniciado)
+
+**Registrado em 31/08/2026, a pedido do dono. Nada disto foi construído.**
+Está aqui para não se perder e para ser retomado sem reexplicação.
+
+Hoje `/financeiro` é um **detector de cobranças que chegam por e-mail**: lê
+boleto e PIX do que caiu na caixa e mostra o que vence. Isso responde "o que
+tenho a pagar", e só. O pedido é outro: **acompanhar as finanças**, com
+previsão, previsibilidade, detecção de "torneira vazando" e análise.
+
+São três blocos, e a ordem entre eles não é indiferente.
+
+### 7A — Entrada de dados por outros canais (WhatsApp)
+
+Poder mandar informação e arquivo por WhatsApp para entrar no módulo — foto
+de comprovante, PDF de fatura, "paguei o fornecedor X, 1.200".
+
+Perguntas em aberto, a decidir antes de codar:
+
+- **Qual caminho de WhatsApp.** A Cloud API da Meta exige conta business
+  verificada e número dedicado; um bridge não-oficial é frágil e passível de
+  banimento. Precisa ser decidido com os custos na mesa.
+- **Confiança do canal.** O e-mail tem remetente verificável; o WhatsApp,
+  não. Uma mensagem que cria lançamento financeiro precisa saber que veio de
+  você — no mínimo, número em allowlist.
+- Provavelmente o mesmo padrão já usado no resto: **entrada vira proposta**,
+  não lançamento direto. O WhatsApp preenche; você confirma no painel.
+
+Vale notar que o caminho mais barato para começar já existe: **encaminhar
+para uma das caixas conectadas** aciona a extração de hoje sem nenhum código
+novo. Serve de ponte enquanto o WhatsApp não existe.
+
+### 7B — Dados bancários e conciliação
+
+Subir, conectar, integrar ou importar extrato bancário para conciliar contra
+as cobranças detectadas.
+
+O terreno brasileiro, que muda a estratégia:
+
+- **Open Finance é regulado.** Acesso direto exige ser instituição
+  autorizada pelo Banco Central. Na prática, ou se usa um agregador
+  (Pluggy, Belvo, Klavi e similares), que é serviço pago com credencial de
+  terceiro no meio, ou não se usa.
+- **Importar arquivo é o caminho realista para a primeira versão**: OFX
+  (todo banco brasileiro exporta) e CSV. Sem dependência externa, sem custo
+  recorrente, e não entrega credencial bancária a ninguém.
+- Conciliação é **casamento de registros**, com todos os problemas do gênero:
+  valor bate mas a data não, descrição do extrato não parece com o
+  beneficiário do boleto, parcelamento, estorno. Precisa de proposta de
+  casamento com confirmação — nunca casar sozinho e em silêncio.
+- **Segurança:** extrato bancário é mais sensível que e-mail. Herda a
+  criptografia de segredos que já existe, mas merece uma passada própria em
+  `04-seguranca.md` antes de entrar.
+
+### 7C — Análise, previsão e previsibilidade
+
+O que o dono pediu com todas as letras, e a parte que só faz sentido depois
+que 7B existir — previsão sobre dados incompletos é adivinhação com cara de
+número:
+
+- **Fluxo de caixa projetado** por negócio (Unitedcom, Cordex.AI, Brand.co,
+  EmpreendaSim, Outros, Pessoais) e consolidado.
+- **Previsibilidade**: quanto da receita é recorrente e quanto é evento
+  único. Para um negócio de palestras (Brand.co) essa distinção é a que
+  importa.
+- **Torneira vazando**: assinatura esquecida, cobrança recorrente que subiu
+  de preço em silêncio, serviço duplicado entre dois negócios, débito que
+  continua depois do cancelamento. É detecção de padrão sobre série
+  histórica — precisa de meses de dados, não de um mês.
+- **Análise**: em que o dinheiro sai, tendência mês a mês, comparação entre
+  os seis negócios.
+
+### Ressalva honesta
+
+Isto é uma reescrita do módulo, não um acréscimo. O `/financeiro` de hoje
+tem um modelo de dados de *cobrança detectada*; contas, saldos, lançamentos
+conciliados, categorias e séries históricas são entidades que **ainda não
+existem no schema**. Vale planejar com essa dimensão à vista em vez de
+descobri-la no meio.
+
+---
+
 ## Riscos conhecidos e como tratamos
 
 | Risco | Tratamento |

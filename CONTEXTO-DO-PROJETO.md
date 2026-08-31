@@ -158,6 +158,16 @@ para validar ponta a ponta contra um provedor de verdade.
   construídas ainda**. Qualquer automação de envio real precisa de decisão
   explícita do usuário, feita com calma, não como efeito colateral de
   outra tarefa.
+- 📌 **Módulo financeiro completo (fase 7) — pedido do dono, registrado em
+  31/08/2026, nada construído.** Hoje `/financeiro` só detecta cobranças
+  que chegam por e-mail. O pedido é transformá-lo em acompanhamento
+  financeiro de verdade: entrada de dados e arquivos **por WhatsApp**,
+  **importação/integração de dados bancários para conciliação**, e
+  **previsão, previsibilidade, detecção de "torneira vazando" e análise**.
+  É uma reescrita do módulo, não um acréscimo — o schema atual não tem
+  contas, saldos, lançamentos conciliados nem série histórica. Detalhes,
+  perguntas em aberto e as restrições do Open Finance brasileiro estão em
+  `docs/06-roadmap.md`, seção "Fase 7".
 
 ## 6. Como rodar localmente
 
