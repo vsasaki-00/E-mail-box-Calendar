@@ -66,22 +66,46 @@ Reflexão sobre a fase de IA (triagem, painel financeiro, resposta assistida):
 
 ## Rodando localmente
 
-Pré-requisitos: Node ≥ 20, pnpm, Docker (ou um Postgres 16 já disponível).
+Pré-requisitos no Mac: `brew install node pnpm` e o Docker Desktop aberto
+(ou um Postgres 16 já rodando).
+
+```bash
+git clone https://github.com/vsasaki-00/E-mail-box-Calendar
+cd E-mail-box-Calendar
+git checkout claude/email-calendar-manager-zsf592
+
+pnpm install && pnpm setup       # confere tudo, gera a chave, sobe o banco
+pnpm dev                         # http://localhost:3000
+```
+
+`pnpm setup` faz o resto: confere Node e pnpm, cria o `.env` com uma chave
+mestra nova, sobe o Postgres (via Docker, ou usa um que já esteja no ar),
+aplica o esquema e popula os dados de demonstração.
+
+É **idempotente**: rodar de novo não quebra nada. E ele **nunca sobrescreve
+um `.env` existente** — trocar a `MASTER_ENCRYPTION_KEY` tornaria ilegíveis
+as credenciais já guardadas das suas caixas.
+
+Sem Docker, ele diz exatamente o que fazer: abrir o Docker Desktop, ou
+`brew install postgresql@16 && brew services start postgresql@16`.
+
+Para pular os dados de demonstração: `SEED=0 pnpm setup`.
+
+<details>
+<summary>Passo a passo manual, se preferir</summary>
 
 ```bash
 pnpm install
-
 cp .env.example .env
 openssl rand -base64 32          # cole em MASTER_ENCRYPTION_KEY no .env
-
 pnpm db:up                       # sobe o Postgres via docker compose
 pnpm db:push                     # aplica o schema
 pnpm db:seed                     # popula dados de demonstração
-
 pnpm dev                         # http://localhost:3000
 ```
 
 Sem Docker, aponte `DATABASE_URL` para um Postgres 16 próprio e pule `pnpm db:up`.
+</details>
 
 O seed monta de propósito o cenário que justifica o produto: o mesmo convite
 chegando em duas contas (que deve virar **uma** linha, não um conflito) e uma
