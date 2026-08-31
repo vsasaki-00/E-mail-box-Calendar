@@ -211,8 +211,13 @@ curl -H "x-cron-secret: $CRON_SECRET" https://<seu-domínio>/api/cron/sync
 2. Crie o projeto no Supabase (região São Paulo) e copie as **duas** strings
    do botão *Connect*: transaction pooler (6543) e session pooler (5432).
 3. `DATABASE_URL="<session pooler, 5432>" pnpm db:push`.
-4. Importe o repositório na Vercel. Em *Settings → Git → Production Branch*,
-   aponte para `claude/email-calendar-manager-zsf592`.
+4. Importe o repositório na Vercel e confira a branch de produção:
+   `claude/email-calendar-manager-zsf592`. O lugar do ajuste muda com a
+   versão da interface — *Settings → Environments → Production → Branch
+   Tracking* na atual, *Settings → Git → Production Branch* na anterior.
+   Como o repositório só tem essa branch (ela é a padrão), normalmente a
+   Vercel já a usa sozinha; o sintoma de estar errado é o aviso
+   "No production deployments found" ao salvar variáveis.
 5. Cadastre as variáveis do item 3, com a `DATABASE_URL` do **transaction
    pooler**. **Antes do primeiro deploy** — sem `SESSION_SECRET` e
    `APP_PASSWORD_HASH` o app responde 503, de propósito.
