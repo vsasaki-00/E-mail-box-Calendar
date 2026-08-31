@@ -157,7 +157,9 @@ async function googleGet<T>(
   });
 
   if (!response.ok) {
-    throw mapGoogleError(response.status, response.headers.get('retry-after'));
+    // Le o corpo ANTES de descartar: e nele que o Google diz o motivo.
+    const corpoErro = await response.text().catch(() => undefined);
+    throw mapGoogleError(response.status, response.headers.get('retry-after'), corpoErro);
   }
   return (await response.json()) as T;
 }
@@ -172,7 +174,9 @@ async function googlePost<T>(ctx: ConnectorContext, url: string, corpo: unknown)
   });
 
   if (!response.ok) {
-    throw mapGoogleError(response.status, response.headers.get('retry-after'));
+    // Le o corpo ANTES de descartar: e nele que o Google diz o motivo.
+    const corpoErro = await response.text().catch(() => undefined);
+    throw mapGoogleError(response.status, response.headers.get('retry-after'), corpoErro);
   }
   // Algumas rotas devolvem 204 sem corpo.
   const texto = await response.text();
@@ -189,7 +193,9 @@ async function googlePatch<T>(ctx: ConnectorContext, url: string, corpo: unknown
   });
 
   if (!response.ok) {
-    throw mapGoogleError(response.status, response.headers.get('retry-after'));
+    // Le o corpo ANTES de descartar: e nele que o Google diz o motivo.
+    const corpoErro = await response.text().catch(() => undefined);
+    throw mapGoogleError(response.status, response.headers.get('retry-after'), corpoErro);
   }
   return (await response.json()) as T;
 }

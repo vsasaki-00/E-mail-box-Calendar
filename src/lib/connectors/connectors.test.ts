@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildGoogleAuthUrl, createPkcePair, mapGoogleError, GOOGLE_SCOPES } from './google';
 import { buildMicrosoftAuthUrl, mapMicrosoftError, MICROSOFT_SCOPES } from './microsoft';
+import { detalheDoGraph } from './microsoft-errors';
+import { detalheDoGoogle } from './google-errors';
 import { domainFromEmail, guessConfigForDomain, APPLE_PRESET } from './imap-caldav';
 import { allConnectors, getConnector } from './registry';
 
@@ -215,5 +217,51 @@ describe('fase 4 — escrita é do CONECTOR, permissão é da CONEXÃO', () => {
     // virar true, este teste quebra antes de qualquer caixa ser afetada.
     const schema = readFileSync('prisma/schema.prisma', 'utf8');
     expect(schema).toMatch(/writeEnabled\s+Boolean\s+@default\(false\)/);
+  });
+});
+
+describe('detalhe do corpo de erro do provedor', () => {
+  it('extrai code e message do Graph', () => {
+    // Formato real do Graph. "Erro 400 no Graph" sozinho nao diagnostica
+    // nada — foi o que apareceu no primeiro sync de uma caixa Outlook.
+    const corpo = JSON.stringify({
+      error: { code: 'ErrorInvalidUser', message: 'The requested user is invalid.' },
+    });
+    expect(detalheDoGraph(corpo)).toBe('ErrorInvalidUser: The requested user is invalid.');
+  });
+
+  it('extrai status e message do Google', () => {
+    const corpo = JSON.stringify({
+      error: { code: 400, message: 'Invalid pageToken', status: 'INVALID_ARGUMENT' },
+    });
+    expect(detalheDoGoogle(corpo)).toBe('INVALID_ARGUMENT: Invalid pageToken');
+  });
+
+  it('nao quebra com corpo vazio, HTML de gateway ou JSON estranho', () => {
+    for (const extrator of [detalheDoGraph, detalheDoGoogle]) {
+      expect(extrator(undefined)).toBeUndefined();
+      expect(extrator('')).toBeUndefined();
+      // Pagina de erro de proxy nao ajuda ninguem; melhor a mensagem generica.
+      expect(extrator('<html><body>502 Bad Gateway</body></html>')).toBeUndefined();
+      expect(extrator('{"algo":"sem campo error"}')).toBeUndefined();
+    }
+  });
+
+  it('trunca mensagem muito longa em vez de encher a tela', () => {
+    const corpo = JSON.stringify({ error: { code: 'X', message: 'y'.repeat(900) } });
+    const saida = detalheDoGraph(corpo)!;
+    expect(saida.length).toBeLessThanOrEqual(301);
+    expect(saida.endsWith('…')).toBe(true);
+  });
+
+  it('anexa o detalhe a mensagem do erro mapeado', () => {
+    const erro = mapMicrosoftError(
+      400,
+      null,
+      JSON.stringify({ error: { code: 'ErrorInvalidIdMalformed', message: 'Id is malformed.' } }),
+    );
+    expect(erro.message).toContain('ErrorInvalidIdMalformed');
+    // E continua classificando pelo status, nao pelo texto.
+    expect(erro.code).toBe('PERMANENT');
   });
 });

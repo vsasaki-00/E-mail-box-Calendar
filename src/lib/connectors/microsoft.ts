@@ -167,7 +167,9 @@ async function graphFetch<T>(
   });
 
   if (!response.ok) {
-    throw mapMicrosoftError(response.status, response.headers.get('retry-after'));
+    // Le o corpo ANTES de descartar: e nele que o Graph diz o motivo.
+    const corpo = await response.text().catch(() => undefined);
+    throw mapMicrosoftError(response.status, response.headers.get('retry-after'), corpo);
   }
   return (await response.json()) as T;
 }
@@ -206,7 +208,10 @@ async function graphWrite<T>(
   });
 
   if (!response.ok) {
-    throw mapMicrosoftError(response.status, response.headers.get('retry-after'));
+    // `corpoErro`, e nao `corpo`: este e o corpo da RESPOSTA de erro; o
+    // parametro `corpo` acima e o que foi ENVIADO.
+    const corpoErro = await response.text().catch(() => undefined);
+    throw mapMicrosoftError(response.status, response.headers.get('retry-after'), corpoErro);
   }
   // Varias rotas de acao devolvem 202/204 sem corpo.
   const texto = await response.text();
