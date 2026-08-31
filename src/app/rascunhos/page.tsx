@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { RascunhoCard, type RascunhoItem } from './rascunho-card';
 
 /**
@@ -46,6 +47,8 @@ export default async function PaginaRascunhos({
     );
   }
 
+  const tz = usuario.timezone || DEFAULT_TIMEZONE;
+
   const triagens = await prisma.itemTriage.findMany({
     where: { userId: usuario.id, needsReply: true },
     take: 60,
@@ -91,7 +94,7 @@ export default async function PaginaRascunhos({
         title: t.unifiedItem.title ?? '(sem assunto)',
         fromName: mensagem?.fromName ?? null,
         fromEmail: mensagem?.fromEmail ?? null,
-        occurredAt: t.unifiedItem.occurredAt.toLocaleString('pt-BR', {
+        occurredAt: formatInZone(t.unifiedItem.occurredAt, tz, {
           day: '2-digit',
           month: '2-digit',
           hour: '2-digit',
@@ -109,7 +112,7 @@ export default async function PaginaRascunhos({
               bodyEdited: rascunho.bodyEdited,
               status: rascunho.status,
               reason: rascunho.reason,
-              criadoEm: rascunho.createdAt.toLocaleString('pt-BR'),
+              criadoEm: formatDateTime(rascunho.createdAt, tz),
             }
           : null,
       };

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { VozCard, type VozInicial } from './voz-card';
 
 /**
@@ -17,6 +18,7 @@ function lista(valor: unknown): { text: string; count: number }[] {
 
 export default async function PaginaVoz() {
   const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  const tz = usuario?.timezone || DEFAULT_TIMEZONE;
   const conexoes = usuario
     ? await prisma.connection.findMany({
         where: { userId: usuario.id },
@@ -41,7 +43,7 @@ export default async function PaginaVoz() {
           language: c.voiceProfile.language,
           traits: Array.isArray(c.voiceProfile.traits) ? (c.voiceProfile.traits as string[]) : [],
           sampleCount: c.voiceProfile.sampleCount,
-          derivedAt: c.voiceProfile.derivedAt.toLocaleString('pt-BR'),
+          derivedAt: formatDateTime(c.voiceProfile.derivedAt, tz),
           userApproved: c.voiceProfile.userApproved,
           userNotes: c.voiceProfile.userNotes,
         }

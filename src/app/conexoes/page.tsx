@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { desconectar, sincronizarAgora } from './actions';
 import { FormularioImapCaldav } from './imap-form';
 
@@ -33,6 +34,7 @@ function statusTexto(status: string): { classe: string; texto: string } {
 
 export default async function PaginaConexoes() {
   const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  const tz = usuario?.timezone || DEFAULT_TIMEZONE;
   const conexoes = usuario
     ? await prisma.connection.findMany({
         where: { userId: usuario.id },
@@ -127,7 +129,7 @@ export default async function PaginaConexoes() {
                     <span className="sub">
                       {PROVIDER_LABEL[conexao.provider] ?? conexao.provider}
                       {conexao.lastSyncAt
-                        ? ` · último sync ${conexao.lastSyncAt.toLocaleString('pt-BR')}`
+                        ? ` · último sync ${formatDateTime(conexao.lastSyncAt, tz)}`
                         : ' · nunca sincronizou'}
                       {conexao.lastErrorMessage ? ` · ${conexao.lastErrorMessage}` : ''}
                     </span>

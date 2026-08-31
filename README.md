@@ -38,7 +38,8 @@ Não substitui o Gmail nem o Outlook. **Agrega, normaliza e comanda.**
 | **Automação pós-sync** (triagem + cobranças sozinhas, com teto de gasto diário) | ✅ `src/core/pipeline/` + `src/worker/` |
 | **SLA de resposta por caixa** (prazo por negócio, urgente encurta) | ✅ `src/core/metrics/sla.ts` |
 | **Alertas com dedupe, resolução automática e reconhecimento** | ✅ `src/core/alerts/` |
-| **Agenda unificada por semana** (cópias colapsadas, conflitos entre contas) | ✅ `src/core/agenda/` + `src/app/agenda/` |
+| **Agenda unificada** (semana e mês, cópias colapsadas, conflitos entre contas) | ✅ `src/core/agenda/` + `src/app/agenda/` |
+| **Datas no seu fuso, não no do servidor** | ✅ `src/core/time/zone.ts` |
 | **Busca unificada** (todas as caixas e calendários) | ✅ `src/core/search/` + `src/app/busca/` |
 | **Ações de escrita** (arquivar, responder, criar evento) | ⛔ Fase 4, com consentimento novo |
 
@@ -155,7 +156,7 @@ com a mensagem real do servidor.
 ### Outros comandos
 
 ```bash
-pnpm test        # 410 testes de núcleo, sem banco
+pnpm test        # 442 testes de núcleo, sem banco
 pnpm typecheck   # tsc --noEmit
 pnpm build       # build de produção
 pnpm worker      # processo de sincronização (separado da UI)

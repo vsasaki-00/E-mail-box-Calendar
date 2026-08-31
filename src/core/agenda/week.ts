@@ -1,5 +1,14 @@
 import { findConflicts, findFocusWindows, type Conflict, type ConflictCandidate } from '@/core/metrics/conflicts';
 import { buildTimeline, type TimelineEntry } from '@/core/metrics/control-tower';
+import {
+  addDaysInZone,
+  DEFAULT_TIMEZONE,
+  isSameDayInZone,
+  startOfDayInZone,
+  zonedParts,
+  zonedTimeToUtc,
+  zonedWeekday,
+} from '@/core/time/zone';
 
 /**
  * Agenda unificada por semana. Ver docs/05-torre-de-controle.md
@@ -11,30 +20,31 @@ import { buildTimeline, type TimelineEntry } from '@/core/metrics/control-tower'
  * Funcoes puras: recebem os eventos ja carregados e organizam a semana.
  */
 
-const DIA_MS = 86_400_000;
-
 /**
  * Limites da semana que contem `referencia`, comecando na SEGUNDA.
  *
  * Segunda e nao domingo porque a semana util e o que voce olha para
  * decidir agenda de trabalho — e porque as seis caixas sao de negocios.
+ *
+ * TUDO calculado no fuso do usuario, nunca no do servidor: a pagina e
+ * renderizada no servidor, e um servidor em UTC colocaria no dia seguinte
+ * todo compromisso que acontece depois das 21:00 em Sao Paulo.
  */
-export function weekBounds(referencia = new Date()): { start: Date; end: Date } {
-  const start = new Date(referencia);
-  start.setHours(0, 0, 0, 0);
-  // getDay(): 0 = domingo. Segunda vira offset 0, domingo vira 6.
-  const offset = (start.getDay() + 6) % 7;
-  start.setDate(start.getDate() - offset);
+export function weekBounds(
+  referencia = new Date(),
+  timeZone = DEFAULT_TIMEZONE,
+): { start: Date; end: Date } {
+  const meiaNoite = startOfDayInZone(referencia, timeZone);
+  // 0 = domingo. Segunda vira offset 0, domingo vira 6.
+  const offset = (zonedWeekday(meiaNoite, timeZone) + 6) % 7;
 
-  const end = new Date(start);
-  end.setDate(end.getDate() + 7);
+  const start = startOfDayInZone(addDaysInZone(meiaNoite, timeZone, -offset), timeZone);
+  const end = startOfDayInZone(addDaysInZone(start, timeZone, 7), timeZone);
   return { start, end };
 }
 
-export function shiftWeeks(referencia: Date, semanas: number): Date {
-  const nova = new Date(referencia);
-  nova.setDate(nova.getDate() + semanas * 7);
-  return nova;
+export function shiftWeeks(referencia: Date, semanas: number, timeZone = DEFAULT_TIMEZONE): Date {
+  return addDaysInZone(referencia, timeZone, semanas * 7);
 }
 
 export interface AgendaDay {
@@ -48,14 +58,6 @@ export interface AgendaDay {
   conflicts: Conflict[];
   /** Buracos de 90min+ no expediente. */
   freeWindows: { start: Date; end: Date; minutes: number }[];
-}
-
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
 }
 
 /**
@@ -74,6 +76,8 @@ export interface BuildWeekOptions {
   workStartHour?: number;
   workEndHour?: number;
   now?: Date;
+  /** Fuso do usuario. Sem isto, o fuso do servidor manda — e ele esta errado. */
+  timeZone?: string;
 }
 
 /**
@@ -88,14 +92,17 @@ export function buildWeek(
   weekStart: Date,
   options: BuildWeekOptions = {},
 ): AgendaDay[] {
-  const { workStartHour = 9, workEndHour = 18, now = new Date() } = options;
+  const {
+    workStartHour = 9,
+    workEndHour = 18,
+    now = new Date(),
+    timeZone = DEFAULT_TIMEZONE,
+  } = options;
   const dias: AgendaDay[] = [];
 
   for (let i = 0; i < 7; i += 1) {
-    const diaInicio = new Date(weekStart);
-    diaInicio.setDate(diaInicio.getDate() + i);
-    diaInicio.setHours(0, 0, 0, 0);
-    const diaFim = new Date(diaInicio.getTime() + DIA_MS);
+    const diaInicio = startOfDayInZone(addDaysInZone(weekStart, timeZone, i), timeZone);
+    const diaFim = startOfDayInZone(addDaysInZone(diaInicio, timeZone, 1), timeZone);
 
     const doDia = eventos.filter((evento) =>
       overlapsDay(evento.startsAt, evento.endsAt, diaInicio, diaFim),
@@ -105,14 +112,15 @@ export function buildWeek(
     // tres contas vira uma linha com tres bolinhas.
     const colapsados = buildTimeline(doDia, colorByConnection);
 
-    const expedienteInicio = new Date(diaInicio);
-    expedienteInicio.setHours(workStartHour, 0, 0, 0);
-    const expedienteFim = new Date(diaInicio);
-    expedienteFim.setHours(workEndHour, 0, 0, 0);
+    // O expediente tambem e hora de PAREDE do usuario: "09:00" em Sao Paulo,
+    // nao 09:00 UTC.
+    const p = zonedParts(diaInicio, timeZone);
+    const expedienteInicio = zonedTimeToUtc(timeZone, p.year, p.month, p.day, workStartHour);
+    const expedienteFim = zonedTimeToUtc(timeZone, p.year, p.month, p.day, workEndHour);
 
     dias.push({
       date: diaInicio,
-      isToday: sameDay(diaInicio, now),
+      isToday: isSameDayInZone(diaInicio, now, timeZone),
       entries: colapsados.filter((e) => !e.isAllDay),
       allDay: colapsados.filter((e) => e.isAllDay),
       // Conflito e calculado sobre as COPIAS, nao sobre as linhas
@@ -163,4 +171,85 @@ export function summarizeWeek(dias: AgendaDay[], eventos: ConflictCandidate[]): 
     freeHours: Math.round(minutosLivres / 60),
     collapsed: Math.max(0, copiasNaoCanceladas - chavesDistintas.size),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Visao de mes
+// ---------------------------------------------------------------------------
+
+/**
+ * Limites do MES que contem `referencia`, expandidos ate cobrir semanas
+ * inteiras (segunda a domingo).
+ *
+ * Expandir e o que faz a grade do mes ficar retangular: sem isso, a
+ * primeira e a ultima linha teriam buracos, e um compromisso do dia 31 do
+ * mes anterior sumiria da visao mesmo estando na mesma semana.
+ */
+export function monthGridBounds(
+  referencia = new Date(),
+  timeZone = DEFAULT_TIMEZONE,
+): { start: Date; end: Date; monthStart: Date } {
+  const p = zonedParts(referencia, timeZone);
+  const monthStart = zonedTimeToUtc(timeZone, p.year, p.month, 1);
+
+  const start = weekBounds(monthStart, timeZone).start;
+  // Primeiro dia do mes seguinte, e dali ate o fim daquela semana.
+  const proximoMes = zonedTimeToUtc(timeZone, p.year, p.month + 1, 1);
+  const ultimoDia = startOfDayInZone(addDaysInZone(proximoMes, timeZone, -1), timeZone);
+  const end = weekBounds(ultimoDia, timeZone).end;
+
+  return { start, end, monthStart };
+}
+
+export interface MonthDay {
+  date: Date;
+  isToday: boolean;
+  /** Pertence ao mes que estamos olhando, ou e sobra de semana? */
+  inMonth: boolean;
+  entries: TimelineEntry[];
+  allDay: TimelineEntry[];
+  hasCrossAccountConflict: boolean;
+}
+
+/**
+ * Monta a grade do mes.
+ *
+ * Reaproveita `buildWeek` semana a semana em vez de reimplementar a
+ * agregacao: a deduplicacao, o conflito e a pertinencia ao dia precisam se
+ * comportar igual nas duas telas, e duas implementacoes divergiriam.
+ */
+export function buildMonth(
+  eventos: ConflictCandidate[],
+  colorByConnection: Map<string, string>,
+  referencia = new Date(),
+  options: BuildWeekOptions = {},
+): { days: MonthDay[]; monthStart: Date } {
+  const timeZone = options.timeZone ?? DEFAULT_TIMEZONE;
+  const { start, end, monthStart } = monthGridBounds(referencia, timeZone);
+  const mesAlvo = zonedParts(monthStart, timeZone).month;
+
+  const days: MonthDay[] = [];
+  let cursor = start;
+
+  while (cursor.getTime() < end.getTime()) {
+    for (const dia of buildWeek(eventos, colorByConnection, cursor, options)) {
+      days.push({
+        date: dia.date,
+        isToday: dia.isToday,
+        inMonth: zonedParts(dia.date, timeZone).month === mesAlvo,
+        entries: dia.entries,
+        allDay: dia.allDay,
+        hasCrossAccountConflict: dia.conflicts.some((c) => c.crossAccount),
+      });
+    }
+    cursor = startOfDayInZone(addDaysInZone(cursor, timeZone, 7), timeZone);
+  }
+
+  return { days, monthStart };
+}
+
+export function shiftMonths(referencia: Date, meses: number, timeZone = DEFAULT_TIMEZONE): Date {
+  const p = zonedParts(referencia, timeZone);
+  // Dia 1 para nao cair no bug classico de 31 de janeiro + 1 mes.
+  return zonedTimeToUtc(timeZone, p.year, p.month + meses, 1, 12);
 }

@@ -225,3 +225,75 @@ corretas (11:00–14:00 e 16:00–20:00).
   navegador. Para quem viaja, falta mostrar o fuso do evento.
 - Qualquer **ação** sobre a agenda (aceitar convite, criar, mover) — isso é
   fase 4, e exige consentimento OAuth novo com escopo de escrita.
+
+---
+
+# Fuso horário: um bug de correção, não de formatação
+
+As páginas são renderizadas **no servidor**, e `toLocaleString` sem
+`timeZone` usa o fuso do **processo**. Este servidor roda em UTC. O
+resultado, medido:
+
+```
+10:00 UTC renderiza como: 10:00   |   em São Paulo: 07:00
+```
+
+Num app de calendário isso não é detalhe de formatação. Havia duas
+consequências, e a segunda é a grave:
+
+1. **Todos os horários apareciam 3 horas adiantados.**
+2. **Os limites de dia estavam errados.** Um compromisso às 21:30 em São
+   Paulo é 00:30 UTC do dia seguinte — ele aparecia na quinta em vez da
+   quarta. O mesmo valia para "hoje", para as janelas livres (o expediente
+   "09:00" era 09:00 UTC, ou seja 06:00 local) e para o começo da semana.
+
+## A correção
+
+`src/core/time/zone.ts`: toda conversão passa a receber o fuso
+explicitamente, lido de `User.timezone` (padrão `America/Sao_Paulo`). Sem
+dependência externa — `Intl` já sabe converter, só precisava ser usado.
+
+O módulo expõe o que o resto do sistema precisa: componentes de data em um
+fuso, o instante UTC de uma hora de parede, começo do dia, dia da semana,
+soma de dias e formatação. `weekBounds`, `buildWeek` e `buildMonth` passaram
+a receber o fuso; nove pontos de formatação nas telas foram corrigidos.
+
+A conversão de hora de parede para instante UTC é feita em **duas
+passadas**, por causa do horário de verão: o deslocamento usado no primeiro
+palpite pode ser o do outro lado da virada. O Brasil não tem mais DST, mas o
+código não pode assumir isso — uma das suas caixas pode ser de fora. Há
+teste com Lisboa atravessando as duas viradas de 2026.
+
+O teste que mais importa é o que **prova o bug**: o mesmo compromisso das
+21:30 em São Paulo cai na quarta com o fuso do usuário e na quinta com o do
+servidor.
+
+## Um bug menor encontrado junto
+
+`buildTimeline` deduplicava as contas de um compromisso **por rótulo**. Duas
+conexões que você nomeou igual ("Trabalho") virariam uma bolinha só, e a
+linha diria "em 1 conta" quando são duas. Agora deduplica por id da conexão.
+
+---
+
+# Visão de mês e grade de horas
+
+A grade do mês é expandida até cobrir **semanas inteiras** (segunda a
+domingo). Sem isso a primeira e a última linha teriam buracos, e um
+compromisso do dia 31 do mês anterior sumiria mesmo estando na mesma semana
+que você está olhando. Os dias de fora do mês aparecem apagados, mas **não
+somem** — continuam sendo compromissos seus.
+
+`buildMonth` reaproveita `buildWeek` semana a semana em vez de
+reimplementar a agregação: deduplicação, conflito e pertinência ao dia
+precisam se comportar igual nas duas telas, e duas implementações
+divergiriam com o tempo.
+
+`shiftMonths` ancora no dia 1 para evitar o bug clássico de 31 de janeiro +
+1 mês virar 2 ou 3 de março. Há teste.
+
+Na visão de semana, cada compromisso ganhou uma **barra proporcional ao
+horário** dentro da faixa 07:00–22:00: dá para ver de relance se o dia está
+carregado de manhã ou de tarde, sem ler linha por linha. A barra é recortada
+em 0–100%, então um compromisso às 05:00 encosta na borda em vez de desenhar
+fora do quadro.

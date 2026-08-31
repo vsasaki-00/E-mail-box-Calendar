@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
-import { loadAgenda } from '@/core/agenda/load';
-import { shiftWeeks } from '@/core/agenda/week';
+import { loadAgenda, loadMonth } from '@/core/agenda/load';
+import { shiftMonths, shiftWeeks } from '@/core/agenda/week';
+import { formatInZone, formatTime, isoDateInZone, zonedParts, zoneLabel } from '@/core/time/zone';
 
 /**
  * Agenda unificada por semana. Ver docs/05-torre-de-controle.md
@@ -15,23 +16,34 @@ export const dynamic = 'force-dynamic';
 
 const DIA_SEMANA = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
 
-function hhmm(data: Date): string {
-  return data.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-}
+// Formatacao SEMPRE com fuso explicito. Ver src/core/time/zone.ts — o
+// padrao silencioso e o fuso do servidor, e ele nao e o seu.
 
-function isoDia(data: Date): string {
-  const ano = data.getFullYear();
-  const mes = String(data.getMonth() + 1).padStart(2, '0');
-  const dia = String(data.getDate()).padStart(2, '0');
-  return `${ano}-${mes}-${dia}`;
+/** Expediente usado pela barrinha de horario. */
+const HORA_INICIO = 7;
+const HORA_FIM = 22;
+
+/**
+ * Posicao do instante dentro do expediente, em porcentagem.
+ *
+ * Recortado em 0..100: um compromisso as 05:00 nao desenha barra fora do
+ * quadro, ele encosta na borda.
+ */
+function faixaDoDia(instante: Date, tz: string): { left: number } {
+  const p = zonedParts(instante, tz);
+  const minutos = p.hour * 60 + p.minute;
+  const inicio = HORA_INICIO * 60;
+  const total = (HORA_FIM - HORA_INICIO) * 60;
+  return { left: Math.min(100, Math.max(0, ((minutos - inicio) / total) * 100)) };
 }
 
 export default async function PaginaAgenda({
   searchParams,
 }: {
-  searchParams: Promise<{ semana?: string; conta?: string }>;
+  searchParams: Promise<{ semana?: string; conta?: string; vista?: string; dia?: string }>;
 }) {
   const params = await searchParams;
+  const vista = params.vista === 'mes' ? 'mes' : 'semana';
 
   const referencia = params.semana ? new Date(`${params.semana}T12:00:00`) : new Date();
   const base = Number.isNaN(referencia.getTime()) ? new Date() : referencia;
@@ -50,13 +62,17 @@ export default async function PaginaAgenda({
     );
   }
 
-  const dados = await loadAgenda(usuario.id, base, params.conta || null);
-  const conta = params.conta ? `&conta=${params.conta}` : '';
+  if (vista === 'mes') return <VistaMes base={base} userId={usuario.id} conta={params.conta} />;
 
-  const rotuloSemana = `${dados.weekStart.toLocaleDateString('pt-BR', {
+  const dados = await loadAgenda(usuario.id, base, params.conta || null);
+  const tz = dados.timeZone;
+  const conta = params.conta ? `&conta=${params.conta}` : '';
+  const isoDia = (data: Date) => isoDateInZone(data, tz);
+
+  const rotuloSemana = `${formatInZone(dados.weekStart, tz, {
     day: '2-digit',
     month: 'short',
-  })} – ${new Date(dados.weekEnd.getTime() - 1).toLocaleDateString('pt-BR', {
+  })} – ${formatInZone(new Date(dados.weekEnd.getTime() - 1), tz, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -69,7 +85,8 @@ export default async function PaginaAgenda({
           <h1>Agenda</h1>
           <p className="sub">
             Todos os calendários em uma semana só. O mesmo compromisso em várias contas é{' '}
-            <strong>uma linha</strong>, com uma bolinha por conta.
+            <strong>uma linha</strong>, com uma bolinha por conta. Horários em{' '}
+            <strong>{tz}</strong> ({zoneLabel(dados.weekStart, tz)}).
           </p>
         </div>
         <a href="/" className="sub">← voltar</a>
@@ -96,6 +113,12 @@ export default async function PaginaAgenda({
         </a>
 
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <a href={`/agenda?semana=${isoDia(base)}${conta}`} className="pill" style={{ fontWeight: 600 }}>
+            semana
+          </a>
+          <a href={`/agenda?vista=mes&semana=${isoDia(base)}${conta}`} className="pill">
+            mês
+          </a>
           <a
             href={`/agenda?semana=${isoDia(base)}`}
             className="pill"
@@ -177,7 +200,7 @@ export default async function PaginaAgenda({
                 }}
               >
                 <strong style={{ fontSize: 14 }}>
-                  {DIA_SEMANA[i]} {dia.date.getDate()}/{dia.date.getMonth() + 1}
+                  {DIA_SEMANA[i]} {formatInZone(dia.date, tz, { day: '2-digit', month: '2-digit' })}
                 </strong>
                 {dia.isToday && <span className="pill ok">hoje</span>}
                 {dia.conflicts.some((c) => c.crossAccount) && (
@@ -196,7 +219,7 @@ export default async function PaginaAgenda({
                   <span className="titulo-item">{entrada.title}</span>
                   <span style={{ display: 'flex', gap: 3 }}>
                     {entrada.accounts.map((conta) => (
-                      <span key={conta.label} className="ponto" style={{ background: conta.color }} />
+                      <span key={conta.id} className="ponto" style={{ background: conta.color }} />
                     ))}
                   </span>
                 </div>
@@ -204,11 +227,43 @@ export default async function PaginaAgenda({
 
               {dia.entries.map((entrada) => (
                 <div key={entrada.id} className="linha">
+                  {/* Barra proporcional ao horario dentro do expediente: da
+                      para ver de relance se o dia esta carregado de manha ou
+                      de tarde, sem precisar ler cada linha. */}
+                  <span
+                    aria-hidden
+                    style={{
+                      display: 'inline-block',
+                      width: 46,
+                      height: 6,
+                      borderRadius: 3,
+                      background: 'var(--border)',
+                      position: 'relative',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        borderRadius: 3,
+                        background: conflitantes.has(entrada.id)
+                          ? 'var(--crit)'
+                          : entrada.accounts[0]?.color,
+                        left: `${faixaDoDia(entrada.startsAt, tz).left}%`,
+                        width: `${Math.max(
+                          6,
+                          faixaDoDia(entrada.endsAt, tz).left - faixaDoDia(entrada.startsAt, tz).left,
+                        )}%`,
+                      }}
+                    />
+                  </span>
                   <span
                     className={`pill ${conflitantes.has(entrada.id) ? 'crit' : ''}`}
                     style={{ whiteSpace: 'nowrap' }}
                   >
-                    {hhmm(entrada.startsAt)}–{hhmm(entrada.endsAt)}
+                    {formatTime(entrada.startsAt, tz)}–{formatTime(entrada.endsAt, tz)}
                   </span>
                   <span className="titulo-item">
                     {entrada.title}
@@ -225,7 +280,7 @@ export default async function PaginaAgenda({
                   </span>
                   <span style={{ display: 'flex', gap: 3 }}>
                     {entrada.accounts.map((conta) => (
-                      <span key={conta.label} className="ponto" style={{ background: conta.color }} />
+                      <span key={conta.id} className="ponto" style={{ background: conta.color }} />
                     ))}
                   </span>
                 </div>
@@ -233,12 +288,150 @@ export default async function PaginaAgenda({
 
               {dia.freeWindows.length > 0 && (
                 <p className="sub" style={{ fontSize: 12, marginTop: 6, marginBottom: 0 }}>
-                  livre: {dia.freeWindows.map((j) => `${hhmm(j.start)}–${hhmm(j.end)}`).join(' · ')}
+                  livre: {dia.freeWindows.map((j) => `${formatTime(j.start, tz)}–${formatTime(j.end, tz)}`).join(' · ')}
                 </p>
               )}
             </section>
           );
         })}
+      </div>
+    </main>
+  );
+}
+
+/**
+ * Grade do mês. Reaproveita o mesmo núcleo da semana, então a
+ * deduplicação e o conflito se comportam igual nas duas telas.
+ */
+async function VistaMes({
+  base,
+  userId,
+  conta,
+}: {
+  base: Date;
+  userId: string;
+  conta?: string;
+}) {
+  const dados = await loadMonth(userId, base, conta || null);
+  const tz = dados.timeZone;
+  const sufixo = conta ? `&conta=${conta}` : '';
+
+  const linhas: (typeof dados.days)[] = [];
+  for (let i = 0; i < dados.days.length; i += 7) linhas.push(dados.days.slice(i, i + 7));
+
+  return (
+    <main className="shell">
+      <header className="topo">
+        <div>
+          <h1>Agenda</h1>
+          <p className="sub">
+            Mês inteiro, todos os calendários. Horários em <strong>{tz}</strong> (
+            {zoneLabel(dados.monthStart, tz)}).
+          </p>
+        </div>
+        <a href="/" className="sub">← voltar</a>
+      </header>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+        <a href={`/agenda?vista=mes&semana=${isoDateInZone(shiftMonths(base, -1, tz), tz)}${sufixo}`} className="pill">
+          ← mês anterior
+        </a>
+        <strong style={{ fontSize: 14 }}>
+          {formatInZone(dados.monthStart, tz, { month: 'long', year: 'numeric' })}
+        </strong>
+        <a href={`/agenda?vista=mes&semana=${isoDateInZone(shiftMonths(base, 1, tz), tz)}${sufixo}`} className="pill">
+          próximo mês →
+        </a>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <a href={`/agenda?semana=${isoDateInZone(base, tz)}${sufixo}`} className="pill">
+            semana
+          </a>
+          <a href={`/agenda?vista=mes&semana=${isoDateInZone(base, tz)}${sufixo}`} className="pill" style={{ fontWeight: 600 }}>
+            mês
+          </a>
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+          gap: 4,
+          marginBottom: 6,
+        }}
+      >
+        {DIA_SEMANA.map((nome) => (
+          <div key={nome} className="sub" style={{ fontSize: 11, textAlign: 'center' }}>
+            {nome.slice(0, 3)}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {linhas.map((linha, i) => (
+          <div
+            key={i}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}
+          >
+            {linha.map((dia) => {
+              const todos = [...dia.allDay, ...dia.entries];
+              return (
+                <div
+                  key={dia.date.toISOString()}
+                  className="card"
+                  style={{
+                    padding: 7,
+                    minHeight: 88,
+                    // Sobra de semana fica apagada, mas NAO some: um
+                    // compromisso do dia 31 do mes anterior continua sendo
+                    // um compromisso seu.
+                    opacity: dia.inMonth ? 1 : 0.45,
+                    borderLeft: dia.isToday ? '3px solid var(--ok, #4ade80)' : undefined,
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 12, fontWeight: dia.isToday ? 700 : 500 }}>
+                      {formatInZone(dia.date, tz, { day: '2-digit' })}
+                    </span>
+                    {dia.hasCrossAccountConflict && (
+                      <span style={{ color: 'var(--crit)', fontSize: 11 }}>●</span>
+                    )}
+                  </div>
+
+                  {todos.slice(0, 3).map((entrada) => (
+                    <div
+                      key={entrada.id}
+                      className="sub"
+                      style={{
+                        fontSize: 10,
+                        marginTop: 3,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={entrada.title}
+                    >
+                      {entrada.accounts.map((c) => (
+                        <span
+                          key={c.id}
+                          className="ponto"
+                          style={{ background: c.color, width: 5, height: 5 }}
+                        />
+                      ))}{' '}
+                      {entrada.isAllDay ? '' : `${formatTime(entrada.startsAt, tz)} `}
+                      {entrada.title}
+                    </div>
+                  ))}
+                  {todos.length > 3 && (
+                    <div className="sub" style={{ fontSize: 10, marginTop: 2 }}>
+                      +{todos.length - 3}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { AlertaLinha } from './alerta-linha';
 import { loadControlTower, type ControlTowerData } from '@/core/metrics/control-tower';
+import { DEFAULT_TIMEZONE, formatDateTime, formatTime } from '@/core/time/zone';
 
 /**
  * Torre de Controle. Ver docs/05-torre-de-controle.md
@@ -18,8 +19,9 @@ const PROVIDER_LABEL: Record<string, string> = {
   IMAP_CALDAV: 'IMAP/CalDAV',
 };
 
-function hora(date: Date): string {
-  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+// Sempre com fuso explicito: o padrao e o do servidor. Ver core/time/zone.
+function hora(date: Date, tz: string): string {
+  return formatTime(date, tz);
 }
 
 function statusPill(status: string, isStale: boolean) {
@@ -35,7 +37,7 @@ function Vazio({ children }: { children: React.ReactNode }) {
   return <p className="vazio">{children}</p>;
 }
 
-function Painel({ dados }: { dados: ControlTowerData }) {
+function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
   const criticos = dados.conflicts.filter((c) => c.crossAccount);
 
   return (
@@ -188,7 +190,7 @@ function Painel({ dados }: { dados: ControlTowerData }) {
             dados.timeline.map((evento) => (
               <div key={evento.id} className="linha">
                 <span className="hora">
-                  {evento.isAllDay ? 'dia' : `${hora(evento.startsAt)}–${hora(evento.endsAt)}`}
+                  {evento.isAllDay ? 'dia' : `${hora(evento.startsAt, tz)}–${hora(evento.endsAt, tz)}`}
                 </span>
                 <span className="titulo-item">
                   {evento.title}
@@ -340,12 +342,16 @@ pnpm db:seed    # popula dados de demonstracao`}
 
 export default async function TorreDeControle() {
   let dados: ControlTowerData | null = null;
+  let tz = DEFAULT_TIMEZONE;
   let erro: string | null = null;
 
   try {
     // Single-user na fase 1: o primeiro usuario e o dono. Ver docs/02.
     const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
-    if (usuario) dados = await loadControlTower(usuario.id);
+    if (usuario) {
+      dados = await loadControlTower(usuario.id);
+      tz = usuario.timezone || DEFAULT_TIMEZONE;
+    }
   } catch (e) {
     erro = e instanceof Error ? e.message : String(e);
   }
@@ -359,7 +365,7 @@ export default async function TorreDeControle() {
         </div>
         <div style={{ textAlign: 'right' }}>
           {dados && (
-            <div className="sub">estado de {dados.generatedAt.toLocaleString('pt-BR')}</div>
+            <div className="sub">estado de {formatDateTime(dados.generatedAt, tz)}</div>
           )}
           <a href="/agenda" className="sub" style={{ marginRight: 14 }}>
             agenda →
@@ -399,7 +405,7 @@ export default async function TorreDeControle() {
         </div>
       )}
 
-      {dados && <Painel dados={dados} />}
+      {dados && <Painel dados={dados} tz={tz} />}
     </main>
   );
 }

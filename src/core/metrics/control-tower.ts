@@ -82,7 +82,14 @@ export interface TimelineEntry {
   endsAt: Date;
   isAllDay: boolean;
   /** Em quais contas este mesmo compromisso existe. */
-  accounts: { label: string; color: string }[];
+  /**
+   * Em quais contas este mesmo compromisso existe.
+   *
+   * `id` e a conexao, e e por ele que a lista deduplica: duas contas que
+   * voce nomeou igual ("Trabalho") sao duas contas, e mostrar uma bolinha
+   * so diria que o compromisso existe em menos caixas do que existe.
+   */
+  accounts: { id: string; label: string; color: string }[];
 }
 
 export interface ControlTowerData {
@@ -146,6 +153,7 @@ export function buildTimeline(
 
     const chave = evento.dedupeKey ?? `id:${evento.id}`;
     const conta = {
+      id: evento.connectionId,
       label: evento.connectionLabel,
       color: colorByConnection.get(evento.connectionId) ?? '#6366f1',
     };
@@ -153,7 +161,7 @@ export function buildTimeline(
     const existente = porChave.get(chave);
     if (existente) {
       // Mesma reuniao vista de outra conta: acrescenta a conta, nao a linha.
-      if (!existente.accounts.some((a) => a.label === conta.label)) {
+      if (!existente.accounts.some((a) => a.id === conta.id)) {
         existente.accounts.push(conta);
       }
       continue;

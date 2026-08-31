@@ -1,5 +1,6 @@
 import type { TriageCategory } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { ItemTriagemLinha, type ItemTriagem } from './item-form';
 
 /**
@@ -50,6 +51,7 @@ export default async function PaginaTriagem({
     : 'acao';
 
   const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  const tz = usuario?.timezone || DEFAULT_TIMEZONE;
   if (!usuario) {
     return (
       <main className="shell">
@@ -91,7 +93,7 @@ export default async function PaginaTriagem({
       unifiedItemId: t.unifiedItemId,
       title: t.unifiedItem.title ?? '(sem assunto)',
       preview: t.unifiedItem.preview ?? '',
-      occurredAt: t.unifiedItem.occurredAt.toLocaleString('pt-BR', {
+      occurredAt: formatInZone(t.unifiedItem.occurredAt, tz, {
         day: '2-digit',
         month: '2-digit',
         hour: '2-digit',

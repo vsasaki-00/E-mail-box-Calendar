@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { runSearch } from '@/core/search/run';
 import { MIN_QUERY_LENGTH } from '@/core/search/query';
 
@@ -40,6 +41,7 @@ export default async function PaginaBusca({
   const q = (params.q ?? '').trim();
 
   const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  const tz = usuario?.timezone || DEFAULT_TIMEZONE;
   const conexoes = usuario
     ? await prisma.connection.findMany({
         where: { userId: usuario.id },
@@ -151,7 +153,7 @@ export default async function PaginaBusca({
                 <div className="sub" style={{ fontSize: 12 }}>
                   {hit.fromLabel && `${hit.fromLabel} · `}
                   {hit.connectionLabel} ·{' '}
-                  {hit.occurredAt.toLocaleString('pt-BR', {
+                  {formatInZone(hit.occurredAt, tz, {
                     day: '2-digit',
                     month: '2-digit',
                     year: '2-digit',

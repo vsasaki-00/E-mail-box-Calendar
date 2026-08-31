@@ -116,3 +116,51 @@ describe('dayBounds', () => {
     expect(end.getTime() - start.getTime()).toBe(24 * 3_600_000);
   });
 });
+
+describe('buildTimeline — deduplicação de contas', () => {
+  it('duas conexões com o MESMO nome continuam sendo duas contas', () => {
+    // Deduplicar por rótulo mostraria uma bolinha só, e a linha diria que o
+    // compromisso existe em menos caixas do que existe de verdade.
+    const base = {
+      title: 'Reunião',
+      startsAt: new Date('2026-09-02T14:00:00Z'),
+      endsAt: new Date('2026-09-02T15:00:00Z'),
+      isAllDay: false,
+      status: 'CONFIRMED' as const,
+      dedupeKey: 'evt:x',
+    };
+
+    const linhas = buildTimeline(
+      [
+        { ...base, id: 'a', connectionId: 'c1', connectionLabel: 'Trabalho' },
+        { ...base, id: 'b', connectionId: 'c2', connectionLabel: 'Trabalho' },
+      ],
+      new Map([
+        ['c1', '#111'],
+        ['c2', '#222'],
+      ]),
+    );
+
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0]?.accounts).toHaveLength(2);
+  });
+
+  it('a mesma conexão não é contada duas vezes', () => {
+    const base = {
+      title: 'Reunião',
+      startsAt: new Date('2026-09-02T14:00:00Z'),
+      endsAt: new Date('2026-09-02T15:00:00Z'),
+      isAllDay: false,
+      status: 'CONFIRMED' as const,
+      dedupeKey: 'evt:x',
+      connectionId: 'c1',
+      connectionLabel: 'Trabalho',
+    };
+
+    const linhas = buildTimeline(
+      [{ ...base, id: 'a' }, { ...base, id: 'b' }],
+      new Map([['c1', '#111']]),
+    );
+    expect(linhas[0]?.accounts).toHaveLength(1);
+  });
+});
