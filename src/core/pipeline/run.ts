@@ -177,6 +177,13 @@ export async function runAutomationForUser(
 export async function runAutomationCycle(
   options: AutomationOptions = {},
 ): Promise<AutomationResult[]> {
+  // Desligada por completo: nem consulta o banco. A checagem existia so
+  // por usuario, depois do findMany — o que fazia um pipeline desligado
+  // ainda bater no banco a cada ciclo.
+  if ((options.enabled ?? process.env.AUTO_PIPELINE !== 'false') === false) {
+    return [];
+  }
+
   const usuarios = await prisma.user.findMany({ select: { id: true } });
   const resultados: AutomationResult[] = [];
 

@@ -89,7 +89,33 @@ async function automacao(): Promise<void> {
   }
 }
 
+/**
+ * Confere a configuracao ANTES do primeiro ciclo.
+ *
+ * Sem isto, uma variavel faltando so aparece como erro do Prisma dentro de
+ * cada ciclo — repetido para sempre, em stack trace, sem dizer o que fazer.
+ * Falhar na partida, com o nome da variavel e o caminho do arquivo, e a
+ * diferenca entre um minuto e uma hora de depuracao.
+ */
+function conferirConfiguracao(): void {
+  const faltando: string[] = [];
+  if (!process.env.DATABASE_URL?.trim()) faltando.push('DATABASE_URL');
+  if (!process.env.MASTER_ENCRYPTION_KEY?.trim()) faltando.push('MASTER_ENCRYPTION_KEY');
+
+  if (faltando.length === 0) return;
+
+  console.error(
+    `[worker] faltando: ${faltando.join(', ')}.\n` +
+      '  Rodando contra producao? Preencha .env.producao (copie de\n' +
+      '  .env.producao.example) e use `pnpm worker:producao`.\n' +
+      '  Rodando local? Preencha .env e use `pnpm worker`.',
+  );
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
+  conferirConfiguracao();
+
   console.log(
     `[worker] iniciado — sync a cada ${INTERVAL_MS / 1000}s, ` +
       `automacao a cada ${AUTOMATION_INTERVAL_MS / 1000}s`,
