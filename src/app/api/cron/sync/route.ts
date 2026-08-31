@@ -16,8 +16,10 @@ import { runAutomationCycle } from '@/core/pipeline/run';
  */
 
 // O ciclo fala com Gmail, Graph e Postgres; o padrão de 10s não basta.
-// 300 é o teto do plano Pro da Vercel (o Hobby corta em 60).
-export const maxDuration = 300;
+// 60 é o TETO do plano Hobby — declarar mais que isso não é ignorado, é
+// build recusado ("maxDuration must be between 1 and 60"). Verificado no
+// deploy real deste projeto. No plano Pro pode subir para até 300.
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 /** Comparação em tempo constante, com o comprimento também escondido. */

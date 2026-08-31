@@ -178,7 +178,16 @@ lista recebe `access_denied` na autorização.
 
 ## 5. Sincronização por cron
 
-`vercel.json` agenda `/api/cron/sync` de hora em hora. A rota roda o mesmo
+`vercel.json` agenda `/api/cron/sync` **uma vez por dia, 06:00 de São
+Paulo** (`0 9 * * *` em UTC) — porque o plano é o Hobby, e o Hobby recusa o
+build inteiro diante de um cron mais frequente ou de `maxDuration` acima de
+60s. Não é degradação silenciosa, é deploy que falha; foi descoberto no
+deploy real deste projeto. Migrando para o Pro, suba o cron para
+`0 * * * *` e o `maxDuration` da rota para 300.
+
+Com sync diário, o complemento natural é rodar `pnpm worker` no Mac quando
+ele estiver ligado — ambos escrevem no mesmo banco e a deduplicação absorve
+a sobreposição. A rota roda o mesmo
 `runSyncCycle()` e `runAutomationCycle()` do worker — o núcleo é idêntico, só
 muda quem dispara.
 
