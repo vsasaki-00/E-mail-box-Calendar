@@ -24,6 +24,8 @@ export interface ItemTriagem {
   confidence: number;
   reason: string | null;
   source: string;
+  /** Quando a classificação foi feita — não é a data do e-mail. */
+  classificadoEm: string;
   /** Em quantas caixas este mesmo item existe. */
   copyCount: number;
 }
@@ -105,6 +107,12 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
             <div className="sub" style={{ fontSize: 12, marginTop: 4, fontStyle: 'italic' }}>
               {item.reason}
               {!corrigido && ` · confiança ${Math.round(item.confidence * 100)}%`}
+              {/* QUANDO foi classificado, e não a data do e-mail.
+                  Sem isto, uma falha antiga guardada no banco parece um erro
+                  de agora: o motivo fica lado a lado com a data da mensagem,
+                  e não há como saber que a classificação é de outro dia — e
+                  que o botão "Refazer automáticas" resolve. */}
+              {` · classificado em ${item.classificadoEm}`}
             </div>
           )}
         </div>

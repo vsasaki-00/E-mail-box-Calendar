@@ -125,6 +125,7 @@ export default async function PaginaTriagem({
       needsReply: t.needsReply,
       confidence: t.confidence,
       reason: t.reason,
+      classificadoEm: formatDateTime(t.updatedAt, tz),
       source: t.source,
       copyCount: t.unifiedItem.copyCount,
     }));
