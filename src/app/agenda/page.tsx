@@ -3,6 +3,7 @@ import { loadAgenda, loadMonth } from '@/core/agenda/load';
 import { shiftMonths, shiftWeeks } from '@/core/agenda/week';
 import { formatInZone, formatTime, isoDateInZone, zonedParts, zoneLabel } from '@/core/time/zone';
 import { Nav } from '../nav';
+import { DiagnosticoAgendaVazia } from './diagnostico';
 
 /**
  * Agenda unificada por semana. Ver docs/05-torre-de-controle.md
@@ -68,6 +69,9 @@ export default async function PaginaAgenda({
 
   const dados = await loadAgenda(usuario.id, base, params.conta || null);
   const tz = dados.timeZone;
+  // Nenhum compromisso na visao inteira: em vez de so uma grade vazia, a
+  // tela passa a dizer em que ponto cada conta parou.
+  const semNada = dados.days.every((d) => d.entries.length === 0 && d.allDay.length === 0);
   const conta = params.conta ? `&conta=${params.conta}` : '';
   const isoDia = (data: Date) => isoDateInZone(data, tz);
 
@@ -297,6 +301,8 @@ export default async function PaginaAgenda({
           );
         })}
       </div>
+
+      {semNada && <DiagnosticoAgendaVazia userId={usuario.id} timeZone={tz} />}
     </main>
   );
 }
@@ -316,6 +322,7 @@ async function VistaMes({
 }) {
   const dados = await loadMonth(userId, base, conta || null);
   const tz = dados.timeZone;
+  const semNada = dados.days.every((d) => d.entries.length === 0 && d.allDay.length === 0);
   const sufixo = conta ? `&conta=${conta}` : '';
 
   const linhas: (typeof dados.days)[] = [];
@@ -435,6 +442,8 @@ async function VistaMes({
           </div>
         ))}
       </div>
+
+      {semNada && <DiagnosticoAgendaVazia userId={userId} timeZone={tz} />}
     </main>
   );
 }
