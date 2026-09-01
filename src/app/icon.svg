@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    Favicon do Meridiano — a marca de `icons.tsx` redesenhada para ícone.
+
+    O que muda em relação ao componente, e por quê:
+
+    1. Cores fixas: `currentColor` e `var(--meridiano)` não resolvem num
+       arquivo servido isolado.
+    2. Fundo próprio: um ícone transparente com traço escuro some numa barra
+       de abas escura.
+    3. Traço reequilibrado. A primeira tentativa engrossou tudo para
+       sobreviver a 16px, e a 180px virou um termômetro — a linha
+       ultrapassava o globo e o zênite ficava desproporcional. Aqui o
+       meridiano termina NA esfera. A 16px o que sobrevive é a silhueta:
+       o círculo externo (por isso ele tem mais peso e contraste que os
+       paralelos) mais a linha teal e o ponto âmbar. Os paralelos e a elipse
+       existem para o tamanho grande e somem sem prejuízo no pequeno.
+  -->
+  <rect width="32" height="32" rx="7" fill="#f7f6f2"/>
+
+  <!-- Globo: círculo, dois paralelos e um meridiano em elipse -->
+  <g fill="none" stroke="#1b2430" stroke-linecap="round">
+    <circle cx="16" cy="16" r="10.6" stroke-width="1.6" opacity="0.62"/>
+    <path d="M6.4 12.2h19.2M6.4 19.8h19.2" stroke-width="1.05" opacity="0.3"/>
+    <ellipse cx="16" cy="16" rx="5.3" ry="10.6" stroke-width="1.05" opacity="0.3"/>
+  </g>
+
+  <!-- O meridiano: a linha de referência que dá nome ao app.
+       Termina na esfera — passar do círculo faz virar agulha. -->
+  <path d="M16 5.4v21.2" stroke="#0f7d78" stroke-width="2.1" stroke-linecap="round"/>
+
+  <!-- Zênite: o sol no ponto mais alto, sobre a linha -->
+  <circle cx="16" cy="9.6" r="2.7" fill="#a86a08"/>
+</svg>

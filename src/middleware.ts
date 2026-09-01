@@ -73,6 +73,12 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Tudo, menos os estáticos do Next e o favicon.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // Tudo, menos os estáticos do Next e os ícones.
+  //
+  // `icon.svg` e `apple-icon.png` precisam ficar de fora: eles são pedidos
+  // pela TELA DE LOGIN, onde por definição ainda não há sessão. Dentro do
+  // portão, o navegador recebia um redirecionamento em vez da imagem e a
+  // aba ficava sem ícone justamente na primeira tela que você vê.
+  // Um ícone não carrega nada privado.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)'],
 };
