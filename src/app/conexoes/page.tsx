@@ -3,6 +3,7 @@ import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone
 import { BotaoDesconectar, BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
 import { BotaoDesconectarTodas, FilaReconexao } from './reconexao';
 import { BotaoAutorizar, FecharSePopup } from './autorizar';
+import { ConfiguracaoDoBanco } from './config-banco';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
 
@@ -136,6 +137,7 @@ export default async function PaginaConexoes({
           <p className="sub" style={{ marginTop: 12 }}>
             Ver <code>docs/03-conectores.md</code>.
           </p>
+          <ConfiguracaoDoBanco />
         </section>
 
         <section className="card">
