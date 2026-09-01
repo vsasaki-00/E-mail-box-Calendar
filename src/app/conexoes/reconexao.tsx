@@ -127,17 +127,30 @@ export function BotaoDesconectarTodas({ contas }: { contas: ContaParaReconectar[
  * Fila de reconexão: mostra o que falta e leva direto à conta certa.
  * Some sozinha conforme as contas voltam.
  */
-export function FilaReconexao({ jaConectados }: { jaConectados: string[] }) {
+export function FilaReconexao({
+  jaConectados,
+  reconectado,
+}: {
+  jaConectados: string[];
+  /** E-mail que o fluxo de OAuth acabou de reconectar, vindo de `?reconectado=`. */
+  reconectado?: string;
+}) {
   const [fila, setFila] = useState<ContaParaReconectar[]>([]);
 
   useEffect(() => {
-    // Remove da fila quem já voltou: assim ela se esvazia sozinha à medida
-    // que você reconecta, sem exigir que você marque nada.
     const conectados = new Set(jaConectados.map((e) => e.toLowerCase()));
+
+    // Também sai da fila o e-mail que o fluxo acabou de reconectar, mesmo que
+    // o provedor tenha devolvido outro endereço. Uma conta pessoal Microsoft
+    // tem vários aliases para a mesma caixa: comparar só com a lista de
+    // conectados deixaria a linha presa na fila para sempre, dando a impressão
+    // de que a reconexão não funcionou.
+    if (reconectado) conectados.add(reconectado.toLowerCase());
+
     const restante = ler().filter((c) => !conectados.has(c.accountEmail.toLowerCase()));
     gravar(restante);
     setFila(restante);
-  }, [jaConectados]);
+  }, [jaConectados, reconectado]);
 
   if (fila.length === 0) return null;
 

@@ -41,7 +41,12 @@ function statusTexto(status: string): { classe: string; texto: string } {
   }
 }
 
-export default async function PaginaConexoes() {
+export default async function PaginaConexoes({
+  searchParams,
+}: {
+  searchParams: Promise<{ reconectado?: string }>;
+}) {
+  const { reconectado } = await searchParams;
   const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
   const tz = usuario?.timezone || DEFAULT_TIMEZONE;
   const conexoes = usuario
@@ -83,7 +88,10 @@ export default async function PaginaConexoes() {
       </header>
 
       <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
-        <FilaReconexao jaConectados={conexoes.map((c) => c.accountEmail)} />
+        <FilaReconexao
+          jaConectados={conexoes.map((c) => c.accountEmail)}
+          reconectado={reconectado}
+        />
 
         <section className="card">
           <h2>Conectar uma conta</h2>

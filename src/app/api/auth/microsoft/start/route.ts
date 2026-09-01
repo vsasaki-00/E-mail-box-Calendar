@@ -36,7 +36,13 @@ export async function GET(request: Request) {
   const state = await criarOAuthState({
     provider: 'MICROSOFT',
     codeVerifier: verifier,
-    redirectAfter: '/conexoes',
+    // Volta avisando QUAL conta foi pedida. A fila de reconexao usa isso
+    // para se limpar mesmo quando o provedor devolve um alias diferente do
+    // e-mail digitado — comum em conta pessoal Microsoft, que tem varios
+    // enderecos para a mesma caixa.
+    redirectAfter: contaSugerida
+      ? `/conexoes?reconectado=${encodeURIComponent(contaSugerida)}`
+      : '/conexoes',
     requestWrite: pedeEscrita,
   });
 
