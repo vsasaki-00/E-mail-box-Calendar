@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { BotaoDesconectar, BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
 import { BotaoDesconectarTodas, FilaReconexao } from './reconexao';
+import { BotaoAutorizar, FecharSePopup } from './autorizar';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
 
@@ -44,9 +45,9 @@ function statusTexto(status: string): { classe: string; texto: string } {
 export default async function PaginaConexoes({
   searchParams,
 }: {
-  searchParams: Promise<{ reconectado?: string }>;
+  searchParams: Promise<{ reconectado?: string; popup?: string }>;
 }) {
-  const { reconectado } = await searchParams;
+  const { reconectado, popup } = await searchParams;
   const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
   const tz = usuario?.timezone || DEFAULT_TIMEZONE;
   const conexoes = usuario
@@ -71,6 +72,17 @@ export default async function PaginaConexoes({
     color: 'var(--text)',
     cursor: 'pointer',
   } as const;
+
+  // Chegou aqui dentro da janelinha de autorizacao: nao adianta desenhar o
+  // app inteiro num quadrado de 520px — o trabalho dela e avisar a pagina de
+  // tras e sumir.
+  if (popup === '1') {
+    return (
+      <main className="shell">
+        <FecharSePopup />
+      </main>
+    );
+  }
 
   return (
     <main className="shell">
@@ -97,11 +109,9 @@ export default async function PaginaConexoes({
           <h2>Conectar uma conta</h2>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {googleConfigurado ? (
-              <a href="/api/auth/google/start">
-                <button type="button" style={botaoConectar}>
-                  Conectar conta Google
-                </button>
-              </a>
+              <BotaoAutorizar href="/api/auth/google/start" style={botaoConectar}>
+                Conectar conta Google
+              </BotaoAutorizar>
             ) : (
               <p className="vazio">
                 Configure <code>GOOGLE_CLIENT_ID</code>, <code>GOOGLE_CLIENT_SECRET</code> e{' '}
@@ -109,11 +119,9 @@ export default async function PaginaConexoes({
               </p>
             )}
             {microsoftConfigurado ? (
-              <a href="/api/auth/microsoft/start">
-                <button type="button" style={botaoConectar}>
-                  Conectar conta Microsoft
-                </button>
-              </a>
+              <BotaoAutorizar href="/api/auth/microsoft/start" style={botaoConectar}>
+                Conectar conta Microsoft
+              </BotaoAutorizar>
             ) : (
               <p className="vazio">
                 Configure <code>MICROSOFT_CLIENT_ID</code> e <code>MICROSOFT_CLIENT_SECRET</code>{' '}
@@ -178,14 +186,22 @@ export default async function PaginaConexoes({
                     {conexao.writeEnabled ? 'escrita autorizada' : 'somente leitura'}
                   </span>
                   {conexao.provider !== 'IMAP_CALDAV' && !conexao.writeEnabled && (
-                    <a
-                      href={`/api/auth/${conexao.provider.toLowerCase()}/start?write=1`}
-                      className="pill"
-                      style={{ textDecoration: 'none' }}
+                    <BotaoAutorizar
+                      href={`/api/auth/${conexao.provider.toLowerCase()}/start?write=1&conta=${encodeURIComponent(conexao.accountEmail)}`}
+                      style={{
+                        border: '1px solid var(--border)',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        font: 'inherit',
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        color: 'var(--muted)',
+                      }}
                       title="Abre a tela do provedor pedindo permissão de escrita nesta caixa"
                     >
                       autorizar escrita →
-                    </a>
+                    </BotaoAutorizar>
                   )}
                   <BotaoSincronizar connectionId={conexao.id} />
                   <BotaoDesconectar

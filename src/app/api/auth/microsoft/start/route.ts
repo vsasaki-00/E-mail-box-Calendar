@@ -15,6 +15,12 @@ export async function GET(request: Request) {
   // fluxo continua sendo o de leitura — escrita nunca acontece por padrao.
   const pedeEscrita = new URL(request.url).searchParams.get('write') === '1';
   const contaSugerida = new URL(request.url).searchParams.get('conta')?.trim() || undefined;
+  const emPopup = new URL(request.url).searchParams.get('popup') === '1';
+
+  const retorno = new URLSearchParams();
+  if (contaSugerida) retorno.set('reconectado', contaSugerida);
+  if (emPopup) retorno.set('popup', '1');
+  const destinoQuery = retorno.size > 0 ? `?${retorno}` : '';
   let config;
   try {
     config = microsoftOAuthConfigFromEnv();
@@ -36,13 +42,11 @@ export async function GET(request: Request) {
   const state = await criarOAuthState({
     provider: 'MICROSOFT',
     codeVerifier: verifier,
-    // Volta avisando QUAL conta foi pedida. A fila de reconexao usa isso
-    // para se limpar mesmo quando o provedor devolve um alias diferente do
-    // e-mail digitado — comum em conta pessoal Microsoft, que tem varios
-    // enderecos para a mesma caixa.
-    redirectAfter: contaSugerida
-      ? `/conexoes?reconectado=${encodeURIComponent(contaSugerida)}`
-      : '/conexoes',
+    // Volta avisando QUAL conta foi pedida (a fila de reconexao usa isso para
+    // se limpar mesmo quando o provedor devolve um alias diferente do e-mail
+    // digitado — comum em conta pessoal Microsoft) e se o fluxo comecou
+    // numa janelinha, que precisa se fechar ao terminar.
+    redirectAfter: `/conexoes${destinoQuery}`,
     requestWrite: pedeEscrita,
   });
 

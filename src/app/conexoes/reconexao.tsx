@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BotaoAutorizar } from './autorizar';
 
 /**
  * Desconectar todas de uma vez, e a fila para reconectar.
@@ -171,13 +172,12 @@ export function FilaReconexao({
           return (
             <div key={conta.accountEmail} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {temOAuth ? (
-                <a
+                <BotaoAutorizar
                   href={`/api/auth/${conta.provider.toLowerCase()}/start?conta=${encodeURIComponent(conta.accountEmail)}`}
+                  style={botao}
                 >
-                  <button type="button" style={botao}>
-                    Reconectar
-                  </button>
-                </a>
+                  Reconectar
+                </BotaoAutorizar>
               ) : (
                 <span className="sub" style={{ fontSize: 11 }}>
                   use o formulário IMAP+CalDAV abaixo ↓
