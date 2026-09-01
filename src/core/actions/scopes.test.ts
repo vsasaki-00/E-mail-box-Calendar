@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateWriteGrant } from './scopes';
+import { GOOGLE_WRITE_SCOPES } from '@/lib/connectors/google';
 
 describe('evaluateWriteGrant — o que o provedor CONCEDEU, não o que pedimos', () => {
   const GOOGLE_COMPLETO = [
@@ -66,5 +67,35 @@ describe('evaluateWriteGrant — o que o provedor CONCEDEU, não o que pedimos',
     const grant = evaluateWriteGrant('MICROSOFT', ['Mail.ReadWrite', 'Mail.Send']);
     expect(grant.enabled).toBe(false);
     expect(grant.missing).toEqual(['calendars.readwrite']);
+  });
+});
+
+describe('reconectar em leitura reflete a perda da escrita', () => {
+  /**
+   * O caso real: quatro caixas ficaram com `writeEnabled` verdadeiro depois
+   * de autorizar escrita. Reconectar em modo leitura revoga a escrita NO
+   * PROVEDOR — se a flag continuasse ligada, a tela diria "escrita
+   * autorizada" com um token que nao escreve, e a acao so falharia na hora
+   * de executar, depois de voce confirmar.
+   */
+  it('escopos de leitura devolvem enabled=false', () => {
+    const leitura = [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/calendar.readonly',
+      'https://www.googleapis.com/auth/userinfo.email',
+    ];
+    expect(evaluateWriteGrant('GOOGLE', leitura).enabled).toBe(false);
+  });
+
+  it('o conjunto de ESCRITA atual continua habilitando a escrita', () => {
+    // Guarda o conserto do calendar.readonly: acrescentar um escopo de
+    // leitura ao conjunto de escrita nao pode desabilitar a escrita.
+    expect(evaluateWriteGrant('GOOGLE', [...GOOGLE_WRITE_SCOPES]).enabled).toBe(true);
+  });
+
+  it('sem informacao de escopo, nao decide nada', () => {
+    // O callback so aplica o resultado quando `grantedScopes` existe; aqui
+    // fica registrado por que o padrao e false.
+    expect(evaluateWriteGrant('GOOGLE', undefined).enabled).toBe(false);
   });
 });

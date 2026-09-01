@@ -119,10 +119,19 @@ export async function GET(request: Request) {
     where: { id: conexao.id },
     data: {
       grantedScopes: concessao.granted,
-      // Um fluxo de leitura nunca DESLIGA a escrita ja concedida: voce
-      // reconectar uma caixa para arrumar o sync nao pode revogar em
-      // silencio uma permissao que voce deu de proposito.
-      ...(estado.requestWrite ? { writeEnabled: concessao.enabled } : {}),
+      // `writeEnabled` segue o que o provedor CONCEDEU, em qualquer fluxo.
+      //
+      // Antes so era atualizado no fluxo de escrita, para nao revogar em
+      // silencio uma permissao dada de proposito. Mas reconectar em modo
+      // leitura revoga de verdade no provedor: manter a flag ligada deixava
+      // a tela dizendo "escrita autorizada" com um token que nao escreve, e
+      // a acao so falharia na hora de executar — depois de voce confirmar.
+      //
+      // A condicao existe porque `evaluateWriteGrant` responde "nao" quando
+      // nao ha informacao de escopo. Isso e o padrao certo para decidir, e
+      // seria errado como motivo para DESLIGAR algo: sem saber, nao se
+      // muda nada.
+      ...(credenciais.grantedScopes ? { writeEnabled: concessao.enabled } : {}),
     },
   });
 
