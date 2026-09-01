@@ -95,8 +95,16 @@ Na string do **transaction pooler**, acrescente os parâmetros que o Prisma
 precisa para conviver com o PgBouncer:
 
 ```
-?pgbouncer=true&connection_limit=1
+?pgbouncer=true&connection_limit=5&pool_timeout=20
 ```
+
+**Não use `connection_limit=1`.** É a receita que se vê em toda parte para
+serverless, e ela quebra este app: várias telas fazem consultas em paralelo
+(`Promise.all`), e com uma conexão só a segunda fica esperando a primeira até
+estourar o prazo — o sintoma é "Timed out fetching a new connection from the
+connection pool" no meio de um sync. O pooler do Supabase multiplexa as
+conexões do lado dele; segurar em 1 do lado do Prisma não protege nada e só
+cria fila.
 
 Prefira o **session pooler** à *direct connection* para o `db push`: em
 projetos novos o Supabase serve a conexão direta só por IPv6, e boa parte
@@ -131,7 +139,7 @@ Em *Settings → Environment Variables*, para o ambiente **Production**:
 
 | Variável | Vem de |
 |---|---|
-| `DATABASE_URL` | Supabase → **transaction pooler** (6543) + `?pgbouncer=true&connection_limit=1` |
+| `DATABASE_URL` | Supabase → **transaction pooler** (6543) + `?pgbouncer=true&connection_limit=5&pool_timeout=20` |
 | `MASTER_ENCRYPTION_KEY` | **copie a do seu `.env` local** — ver abaixo |
 | `MASTER_ENCRYPTION_KEY_ID` | idem (`k1`) |
 | `SESSION_SECRET` | `pnpm gerar:senha` |
