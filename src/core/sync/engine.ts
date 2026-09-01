@@ -34,7 +34,7 @@ export interface SyncResult {
   errorMessage?: string;
 }
 
-const SEM_ALTERACOES: PersistCounts = { created: 0, updated: 0, deleted: 0 };
+const SEM_ALTERACOES: PersistCounts = { created: 0, updated: 0, deleted: 0, skippedUnknownContainer: 0 };
 
 /** Estados vencidos, prontos para rodar. Conexoes desativadas ficam de fora. */
 export async function findDueSyncStates(now = new Date(), limit = 20) {

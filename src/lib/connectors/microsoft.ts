@@ -23,6 +23,7 @@ import {
   type GraphEventResource,
   type GraphMessageResource,
 } from './microsoft-normalize';
+import { envNumero } from '@/lib/env';
 
 /**
  * Conector Microsoft (Outlook Mail + Calendar via Graph). Ver docs/03-conectores.md
@@ -74,7 +75,7 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
  * Agora o conector devolve o controle cedo, carregando a URL de continuacao
  * — nada e refeito e nada e descartado.
  */
-const MAX_PAGES_PER_CONTAINER = Number(process.env.GRAPH_PAGES_PER_RUN ?? 1);
+const MAX_PAGES_PER_CONTAINER = envNumero(process.env.GRAPH_PAGES_PER_RUN, 1);
 
 /**
  * Orcamento de TEMPO por chamada de fetch, em ms.
@@ -93,7 +94,7 @@ function orcamentoMs(): number {
   // gravacao no Postgres, item a item, que numa pagina cheia custa mais que
   // a propria busca. Foi o que continuou estourando a funcao mesmo com o
   // orcamento de 12s.
-  return Number(process.env.GRAPH_RUN_BUDGET_MS ?? 6_000);
+  return envNumero(process.env.GRAPH_RUN_BUDGET_MS, 6_000);
 }
 const MAIL_PAGE_SIZE = 25;
 const CALENDAR_PAGE_SIZE = 50;
@@ -769,8 +770,8 @@ async function fetchEventsDoCalendario(
  * automaticamente, sem precisar reenviar startDateTime/endDateTime.
  */
 function janelaPadrao(): { since: Date; until: Date } {
-  const mesesPassado = Number(process.env.SYNC_CALENDAR_PAST_MONTHS ?? 1);
-  const mesesFuturo = Number(process.env.SYNC_CALENDAR_FUTURE_MONTHS ?? 12);
+  const mesesPassado = envNumero(process.env.SYNC_CALENDAR_PAST_MONTHS, 1);
+  const mesesFuturo = envNumero(process.env.SYNC_CALENDAR_FUTURE_MONTHS, 12);
 
   const since = new Date();
   since.setMonth(since.getMonth() - mesesPassado);

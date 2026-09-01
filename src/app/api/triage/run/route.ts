@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { triageConnection } from '@/core/triage/persist';
+import { envNumero } from '@/lib/env';
 
 /**
  * Roda a triagem das conexoes do usuario.
@@ -44,7 +45,7 @@ export async function POST() {
   // Sequencial dentro da caixa continua de proposito: cada conexao tem seu
   // proprio contexto e seu prompt de sistema em cache; paralelizar trocaria
   // cache quente por concorrencia que a API limita de qualquer jeito.
-  const LOTE = Number(process.env.TRIAGE_BATCH_PER_RUN ?? 25);
+  const LOTE = envNumero(process.env.TRIAGE_BATCH_PER_RUN, 25);
 
   // Escolhe a primeira caixa que ainda tem mensagem sem classificacao.
   let alvo = null;

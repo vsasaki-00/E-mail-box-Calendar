@@ -18,9 +18,18 @@ export interface PersistCounts {
   created: number;
   updated: number;
   deleted: number;
+  /**
+   * Itens que o provedor entregou e que foram DESCARTADOS por pertencerem a
+   * um container (caixa ou calendário) que não está no mapa.
+   *
+   * Existe porque o descarte é um `continue` silencioso: "achou calendário,
+   * não gravou evento" e "não veio evento nenhum" produzem exatamente a
+   * mesma tela, e pedem consertos opostos. Contar separa os dois.
+   */
+  skippedUnknownContainer: number;
 }
 
-const VAZIO: PersistCounts = { created: 0, updated: 0, deleted: 0 };
+const VAZIO: PersistCounts = { created: 0, updated: 0, deleted: 0, skippedUnknownContainer: 0 };
 
 // ---------------------------------------------------------------------------
 // Containers
@@ -259,8 +268,12 @@ export async function persistEvents(params: {
   for (const evento of eventos) {
     const calendarSourceId = calendarIdPorProviderId.get(evento.calendarProviderId);
     // Evento de um calendario que ainda nao conhecemos: sera pego no proximo
-    // ciclo, depois da redescoberta. Ignorar e melhor que gravar orfao.
-    if (!calendarSourceId) continue;
+    // ciclo, depois da redescoberta. Ignorar e melhor que gravar orfao — mas
+    // CONTAR, senao o descarte fica indistinguivel de "nao veio evento".
+    if (!calendarSourceId) {
+      contagem.skippedUnknownContainer += 1;
+      continue;
+    }
 
     const dedupeKey = eventDedupeKey({
       iCalUid: evento.iCalUid,

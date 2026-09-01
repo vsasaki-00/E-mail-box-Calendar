@@ -26,6 +26,7 @@ import {
   type CaldavConnectionConfig,
 } from './caldav-client';
 import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
+import { envNumero } from '@/lib/env';
 
 /**
  * Conector IMAP + CalDAV. Atende o Apple iCloud e qualquer provedor generico
@@ -137,8 +138,8 @@ function caldavConfigDe(ctx: ConnectorContext): CaldavConnectionConfig {
 }
 
 function janelaPadrao(): { since: Date; until: Date } {
-  const mesesPassado = Number(process.env.SYNC_CALENDAR_PAST_MONTHS ?? 1);
-  const mesesFuturo = Number(process.env.SYNC_CALENDAR_FUTURE_MONTHS ?? 12);
+  const mesesPassado = envNumero(process.env.SYNC_CALENDAR_PAST_MONTHS, 1);
+  const mesesFuturo = envNumero(process.env.SYNC_CALENDAR_FUTURE_MONTHS, 12);
 
   const since = new Date();
   since.setMonth(since.getMonth() - mesesPassado);

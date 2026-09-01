@@ -14,3 +14,22 @@ export function envOu(valor: string | undefined, padrao: string): string {
   const limpo = valor?.trim();
   return limpo ? limpo : padrao;
 }
+
+/**
+ * Numero vindo de variavel de ambiente, com padrao para vazio e invalido.
+ *
+ * `Number(process.env.X ?? 12)` tem DOIS buracos, e os dois ja custaram caro
+ * aqui: `??` nao pega string vazia, e `Number('')` e **zero**, nao NaN. Uma
+ * variavel declarada e vazia — como ela chega ao copiar o .env.example ou ao
+ * criar o campo no painel sem preencher — vira zero em silencio.
+ *
+ * No caso da janela do calendario isso significa "de agora ate agora": os
+ * calendarios sao descobertos, nenhum evento cabe no intervalo, e a agenda
+ * fica vazia sem erro nenhum em lugar nenhum.
+ */
+export function envNumero(valor: string | undefined, padrao: number): number {
+  const limpo = valor?.trim();
+  if (!limpo) return padrao;
+  const numero = Number(limpo);
+  return Number.isFinite(numero) ? numero : padrao;
+}

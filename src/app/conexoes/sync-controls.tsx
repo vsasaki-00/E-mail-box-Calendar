@@ -26,7 +26,13 @@ interface RespostaSync {
   results?: {
     resource: string;
     outcome: 'SUCCESS' | 'PARTIAL' | 'FAILED';
-    counts?: { created: number; updated: number; deleted: number };
+    counts?: {
+      created: number;
+      updated: number;
+      deleted: number;
+      /** Entregues pelo provedor e descartados por container desconhecido. */
+      skippedUnknownContainer?: number;
+    };
     errorMessage?: string;
   }[];
   error?: string;
@@ -45,8 +51,9 @@ type Estado =
 async function sincronizarConexao(
   connectionId: string,
   aoProgresso: (rodada: number, itens: number, recurso?: string) => void,
-): Promise<{ itens: number; completo: boolean; erro?: string }> {
+): Promise<{ itens: number; completo: boolean; erro?: string; descartados?: number }> {
   let itens = 0;
+  let descartados = 0;
 
   for (let rodada = 1; rodada <= MAX_RODADAS; rodada += 1) {
     aoProgresso(rodada, itens);
@@ -91,6 +98,7 @@ async function sincronizarConexao(
         (resultado.counts?.created ?? 0) +
         (resultado.counts?.updated ?? 0) +
         (resultado.counts?.deleted ?? 0);
+      descartados += resultado.counts?.skippedUnknownContainer ?? 0;
     }
 
     // Mostra QUAL recurso avancou. Sem isto, uma agenda que nao enche fica
@@ -105,11 +113,16 @@ async function sincronizarConexao(
     if (falha) {
       // Erro do provedor interrompe o loop e APARECE — a alternativa seria
       // girar para sempre contra uma conta com token vencido.
-      return { itens, completo: false, erro: falha.errorMessage ?? 'Falha na sincronização' };
+      return {
+        itens,
+        completo: false,
+        descartados,
+        erro: falha.errorMessage ?? 'Falha na sincronização',
+      };
     }
 
     if (!resultados.some((r) => r.outcome === 'PARTIAL')) {
-      return { itens, completo: true };
+      return { itens, completo: true, descartados };
     }
   }
 
@@ -155,6 +168,14 @@ export function BotaoSincronizar({ connectionId }: { connectionId: string }) {
     );
     if (resultado.erro) {
       setEstado({ tipo: 'erro', mensagem: resultado.erro });
+    } else if (resultado.itens === 0 && (resultado.descartados ?? 0) > 0) {
+      // Sucesso com zero gravados E itens descartados é a pista que faltava:
+      // o provedor ENTREGOU e o app jogou fora por não reconhecer o
+      // calendário. Sem isto, isso é indistinguível de "não veio nada".
+      setEstado({
+        tipo: 'erro',
+        mensagem: `${resultado.descartados} itens vieram do provedor e foram descartados: pertencem a um calendário que o app não reconheceu. Sincronize de novo — a redescoberta acontece na volta seguinte.`,
+      });
     } else {
       setEstado({ tipo: 'concluido', itens: resultado.itens });
       // Recarrega para o "última sincronização" da linha refletir a verdade.

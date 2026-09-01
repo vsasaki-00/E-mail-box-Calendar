@@ -1,6 +1,7 @@
 import { runSyncCycle } from '@/core/sync/engine';
 import { runAutomationCycle } from '@/core/pipeline/run';
 import { prisma } from '@/lib/db';
+import { envNumero } from '@/lib/env';
 
 /**
  * Processo do worker de sincronizacao. Ver ADR-6 em docs/01-arquitetura.md
@@ -10,7 +11,7 @@ import { prisma } from '@/lib/db';
  * uma fila (BullMQ + Redis) sem tocar no nucleo.
  */
 
-const INTERVAL_MS = Number(process.env.SYNC_INTERVAL_SECONDS ?? 300) * 1_000;
+const INTERVAL_MS = envNumero(process.env.SYNC_INTERVAL_SECONDS, 300) * 1_000;
 
 /**
  * A automacao (triagem + cobrancas) roda com intervalo PROPRIO, mais longo
@@ -18,7 +19,7 @@ const INTERVAL_MS = Number(process.env.SYNC_INTERVAL_SECONDS ?? 300) * 1_000;
  * chamada, e nao ha valor em reclassificar de cinco em cinco minutos.
  */
 const AUTOMATION_INTERVAL_MS =
-  Number(process.env.AUTOMATION_INTERVAL_SECONDS ?? 900) * 1_000;
+  envNumero(process.env.AUTOMATION_INTERVAL_SECONDS, 900) * 1_000;
 
 let parando = false;
 let proximaAutomacao = 0;

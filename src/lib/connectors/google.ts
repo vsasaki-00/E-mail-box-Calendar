@@ -25,6 +25,7 @@ import {
   type GmailPart,
   type GoogleEventResource,
 } from './google-normalize';
+import { envNumero } from '@/lib/env';
 
 /**
  * Conector Google (Gmail + Google Calendar). Ver docs/03-conectores.md
@@ -546,7 +547,7 @@ async function fetchMessagesFull(
     estado?.historyId ??
     (await googleGet<{ historyId: string }>(ctx, `${GMAIL_BASE}/profile`)).historyId;
 
-  const dias = Number(process.env.SYNC_MAIL_WINDOW_DAYS ?? 90);
+  const dias = envNumero(process.env.SYNC_MAIL_WINDOW_DAYS, 90);
   const lista = await googleGet<{
     messages?: { id: string }[];
     nextPageToken?: string;
@@ -713,8 +714,8 @@ async function fetchEventsDoCalendario(
 }
 
 function janelaPadrao(): { since: Date; until: Date } {
-  const mesesPassado = Number(process.env.SYNC_CALENDAR_PAST_MONTHS ?? 1);
-  const mesesFuturo = Number(process.env.SYNC_CALENDAR_FUTURE_MONTHS ?? 12);
+  const mesesPassado = envNumero(process.env.SYNC_CALENDAR_PAST_MONTHS, 1);
+  const mesesFuturo = envNumero(process.env.SYNC_CALENDAR_FUTURE_MONTHS, 12);
 
   const since = new Date();
   since.setMonth(since.getMonth() - mesesPassado);
