@@ -62,6 +62,16 @@ export const GOOGLE_WRITE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
+  // `calendar.readonly` PRECISA continuar aqui, ao lado de
+  // `calendar.events`.
+  //
+  // `calendar.events` cobre ler e escrever EVENTOS, mas nao da acesso a
+  // `users/me/calendarList` — e listar os calendarios e o primeiro passo de
+  // todo sync de agenda. Sem este escopo, autorizar escrita numa caixa
+  // QUEBRAVA a sincronizacao do calendario dela por inteiro, com um 403
+  // "insufficient authentication scopes"; a agenda ficava vazia e o e-mail
+  // continuava chegando, o que escondia a relacao de causa.
+  'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/userinfo.email',
 ] as const;

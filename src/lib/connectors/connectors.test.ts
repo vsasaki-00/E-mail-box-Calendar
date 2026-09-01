@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { buildGoogleAuthUrl, createPkcePair, mapGoogleError, GOOGLE_SCOPES } from './google';
+import {
+  buildGoogleAuthUrl,
+  createPkcePair,
+  mapGoogleError,
+  GOOGLE_SCOPES,
+  GOOGLE_WRITE_SCOPES,
+} from './google';
 import { buildMicrosoftAuthUrl, mapMicrosoftError, MICROSOFT_SCOPES } from './microsoft';
 import { detalheDoGraph } from './microsoft-errors';
 import { detalheDoGoogle } from './google-errors';
@@ -263,5 +269,54 @@ describe('detalhe do corpo de erro do provedor', () => {
     expect(erro.message).toContain('ErrorInvalidIdMalformed');
     // E continua classificando pelo status, nao pelo texto.
     expect(erro.code).toBe('PERMANENT');
+  });
+});
+
+describe('escopos de escrita do Google', () => {
+  /**
+   * O bug: `calendar.events` cobre ler/escrever EVENTOS, mas nao da acesso a
+   * `users/me/calendarList` — que e a PRIMEIRA chamada de todo sync de
+   * agenda. Autorizar escrita numa caixa quebrava o calendario dela por
+   * inteiro, com 403 "insufficient authentication scopes". O e-mail
+   * continuava chegando normalmente, o que escondia a relacao de causa.
+   */
+  it('mantem calendar.readonly ao pedir escrita, senao listCalendars quebra', () => {
+    expect(GOOGLE_WRITE_SCOPES).toContain('https://www.googleapis.com/auth/calendar.readonly');
+  });
+
+  it('todo escopo de LEITURA continua presente no conjunto de escrita', () => {
+    // Escrita e um acrescimo ao que ja funcionava, nunca uma troca: qualquer
+    // escopo que sai daqui quebra em silencio uma parte do sync.
+    for (const escopo of GOOGLE_SCOPES) {
+      expect(GOOGLE_WRITE_SCOPES).toContain(escopo);
+    }
+  });
+});
+
+describe('403 do Google: quota nao e a mesma coisa que permissao', () => {
+  const corpo = (mensagem: string, status?: string) =>
+    JSON.stringify({ error: { code: 403, message: mensagem, status } });
+
+  it('escopo insuficiente pede REAUTENTICACAO, nao espera de quota', () => {
+    const erro = mapGoogleError(
+      403,
+      null,
+      corpo('Request had insufficient authentication scopes.', 'PERMISSION_DENIED'),
+    );
+    // AUTH_EXPIRED e o que marca a conexao como "reautenticar"; RATE_LIMITED
+    // apenas degradaria e retentaria para sempre um erro que so a
+    // reautorizacao resolve.
+    expect(erro.code).toBe('AUTH_EXPIRED');
+    expect(erro.message).toMatch(/desconecte e conecte de novo/i);
+  });
+
+  it('quota de verdade continua sendo quota, com o Retry-After respeitado', () => {
+    const erro = mapGoogleError(403, '90', corpo('Rate Limit Exceeded', 'RESOURCE_EXHAUSTED'));
+    expect(erro.code).toBe('RATE_LIMITED');
+    expect(erro.retryAfterSeconds).toBe(90);
+  });
+
+  it('403 sem corpo continua tratado como quota, como antes', () => {
+    expect(mapGoogleError(403).code).toBe('RATE_LIMITED');
   });
 });

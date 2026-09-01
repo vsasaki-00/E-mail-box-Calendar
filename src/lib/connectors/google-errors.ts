@@ -43,8 +43,48 @@ export function mapGoogleError(
   switch (status) {
     case 401:
       return new ConnectorError('AUTH_EXPIRED', com('Token do Google expirado ou revogado'));
-    case 403:
-      return new ConnectorError('RATE_LIMITED', com('Quota do Google excedida'), retryAfter ?? 60);
+    case 403: {
+      /*
+       * 403 do Google e ambiguo: pode ser quota OU permissao. Tratar tudo
+       * como quota — o que este codigo fazia — produz duas mentiras: a tela
+       * diz "Quota do Google excedida" quando o problema e escopo, e o
+       * sistema fica retentando para sempre um erro que so reautorizacao
+       * resolve. Foi assim que um escopo faltando ficou escondido atras de
+       * uma mensagem sobre limite de uso.
+       */
+      const texto = (detalhe ?? '').toLowerCase();
+
+      const escopoInsuficiente =
+        texto.includes('insufficient authentication scopes') ||
+        texto.includes('access_token_scope_insufficient') ||
+        texto.includes('permission_denied') ||
+        texto.includes('insufficientpermissions');
+
+      if (escopoInsuficiente) {
+        // AUTH_EXPIRED marca a conexao como "reautenticar", que e a acao
+        // que de fato resolve. Ver src/core/sync/backoff.ts
+        return new ConnectorError(
+          'AUTH_EXPIRED',
+          com('Permissão insuficiente nesta conta — desconecte e conecte de novo para renovar os acessos'),
+        );
+      }
+
+      const ehQuota =
+        !detalhe ||
+        texto.includes('quota') ||
+        texto.includes('ratelimit') ||
+        texto.includes('rate limit') ||
+        texto.includes('dailylimit') ||
+        texto.includes('userratelimit');
+
+      if (ehQuota) {
+        return new ConnectorError('RATE_LIMITED', com('Quota do Google excedida'), retryAfter ?? 60);
+      }
+
+      // 403 com motivo que nao e nem quota nem escopo (API desativada no
+      // projeto, por exemplo): permanente ate alguem agir.
+      return new ConnectorError('PERMANENT', com('Acesso negado pelo Google'));
+    }
     case 404:
       // O Gmail responde 404 quando o startHistoryId e antigo demais.
       return new ConnectorError('NOT_FOUND', com('Recurso nao encontrado no Google'));
