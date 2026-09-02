@@ -51,7 +51,25 @@ export function looksLikePdf(dados: Uint8Array): boolean {
  * cobranca sem o dado do anexo, mas ela continua aparecendo no painel com
  * o que deu para ler do corpo.
  */
-export async function extractPdfText(dados: Uint8Array): Promise<PdfExtraction> {
+export interface PdfLimits {
+  /** Paginas lidas no maximo. Padrao pensado para boleto (10). */
+  maxPages?: number;
+  /** Caracteres devolvidos no maximo. Padrao pensado para boleto (40k). */
+  maxChars?: number;
+}
+
+/**
+ * Os limites padrao servem a boleto anexo: o que interessa esta na primeira
+ * pagina. Um EXTRATO e outra coisa — 26 paginas e normal — e quem le extrato
+ * passa limites maiores. Sem isso, o extrato do Nubank parava na pagina 10
+ * e o importador diria "importado" com um terco dos lancamentos.
+ */
+export async function extractPdfText(
+  dados: Uint8Array,
+  limites: PdfLimits = {},
+): Promise<PdfExtraction> {
+  const maxPages = limites.maxPages ?? MAX_PDF_PAGES;
+  const maxChars = limites.maxChars ?? MAX_PDF_CHARS;
   if (dados.length === 0) return { text: '', pages: 0, error: 'Anexo vazio' };
   if (dados.length > MAX_PDF_BYTES) {
     return {
@@ -75,12 +93,12 @@ export async function extractPdfText(dados: Uint8Array): Promise<PdfExtraction> 
     // e o bug apareceria como "o anexo sumiu" bem longe daqui.
     const documento = await getDocumentProxy(dados.slice());
 
-    const paginas = Math.min(documento.numPages, MAX_PDF_PAGES);
+    const paginas = Math.min(documento.numPages, maxPages);
     const { text } = await extractText(documento, { mergePages: true });
 
     const bruto = Array.isArray(text) ? text.join('\n') : text;
     return {
-      text: bruto.slice(0, MAX_PDF_CHARS),
+      text: bruto.slice(0, maxChars),
       pages: paginas,
     };
   } catch (erro) {

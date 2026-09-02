@@ -42,18 +42,18 @@ describe('impressaoDigital', () => {
 });
 
 describe('lerExtrato — decodificacao', () => {
-  it('Latin-1 (como os bancos mandam) nao vira caractere quebrado', () => {
+  it('Latin-1 (como os bancos mandam) nao vira caractere quebrado', async () => {
     const latin1 = Buffer.from('Data;Descrição;Valor\n15/08/2026;Padaria São João;-10,00\n', 'latin1');
-    const r = lerExtrato(latin1);
+    const r = await lerExtrato(latin1);
     expect(r.lancamentos[0]?.description).toBe('Padaria São João');
   });
-  it('UTF-8 com BOM tambem', () => {
+  it('UTF-8 com BOM tambem', async () => {
     const utf8 = Buffer.from('﻿Data;Descrição;Valor\n15/08/2026;Padaria São João;-10,00\n', 'utf8');
-    expect(lerExtrato(utf8).lancamentos[0]?.description).toBe('Padaria São João');
+    expect((await lerExtrato(utf8)).lancamentos[0]?.description).toBe('Padaria São João');
   });
-  it('OFX e CSV sao distinguidos pelo conteudo, nao pela extensao', () => {
-    expect(lerExtrato(Buffer.from('OFXHEADER:100\n<OFX></OFX>')).formato).toBe('OFX');
-    expect(lerExtrato(Buffer.from('Data;Descrição;Valor\n')).formato).toBe('CSV');
+  it('OFX e CSV sao distinguidos pelo conteudo, nao pela extensao', async () => {
+    expect((await lerExtrato(Buffer.from('OFXHEADER:100\n<OFX></OFX>'))).formato).toBe('OFX');
+    expect((await lerExtrato(Buffer.from('Data;Descrição;Valor\n'))).formato).toBe('CSV');
   });
   it('hashDoArquivo e determinista', () => {
     expect(hashDoArquivo(Buffer.from('x'))).toBe(hashDoArquivo(Buffer.from('x')));

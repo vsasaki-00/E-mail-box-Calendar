@@ -34,7 +34,7 @@ export interface ContaDoArquivo {
 }
 
 export interface ExtratoLido {
-  formato: 'OFX' | 'CSV';
+  formato: 'OFX' | 'CSV' | 'PDF';
   conta: ContaDoArquivo;
   periodStart?: Date;
   periodEnd?: Date;

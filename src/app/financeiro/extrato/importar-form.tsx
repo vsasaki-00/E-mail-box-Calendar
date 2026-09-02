@@ -89,12 +89,12 @@ export function ImportarExtrato({
   return (
     <form onSubmit={enviar} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input type="file" name="arquivo" accept=".ofx,.csv,.txt,.qfx" required style={{ fontSize: 13 }} />
+        <input type="file" name="arquivo" accept=".ofx,.csv,.txt,.qfx,.pdf" required style={{ fontSize: 13 }} />
 
         <label style={{ fontSize: 12, color: 'var(--muted)' }}>
           para{' '}
           <select value={destino} onChange={(e) => setDestino(e.target.value)} style={campo}>
-            <option value="auto">a conta que o OFX indicar</option>
+            <option value="auto">a conta que o arquivo indicar (OFX/PDF)</option>
             {contas.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
@@ -145,7 +145,7 @@ export function ImportarExtrato({
           {estado.tipo === 'enviando' ? 'Importando…' : 'Importar extrato'}
         </button>
         <span className="sub" style={{ fontSize: 11 }}>
-          OFX ou CSV. O arquivo não é guardado — só o que foi lido dele.
+          OFX, CSV ou PDF de extrato do Nubank. O arquivo não é guardado — só o que foi lido dele.
         </span>
       </div>
 

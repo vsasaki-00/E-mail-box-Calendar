@@ -27,7 +27,7 @@ export type ResultadoImportacao =
       statementId: string;
       accountId: string;
       contaRotulo: string;
-      formato: 'OFX' | 'CSV';
+      formato: 'OFX' | 'CSV' | 'PDF';
       encontrados: number;
       criados: number;
       duplicados: number;
@@ -166,7 +166,7 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
       statementId: anterior.id,
       accountId: anterior.accountId,
       contaRotulo: anterior.account.label,
-      formato: anterior.source === 'OFX' ? 'OFX' : 'CSV',
+      formato: anterior.source === 'MANUAL' ? 'CSV' : anterior.source,
       encontrados: anterior.entriesFound,
       criados: 0,
       duplicados: anterior.entriesFound,
@@ -174,7 +174,7 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
     };
   }
 
-  const extrato = lerExtrato(params.bytes);
+  const extrato = await lerExtrato(params.bytes);
   if (extrato.lancamentos.length === 0) {
     return { ok: false, erro: 'Nenhum lançamento legível no arquivo.', avisos: extrato.avisos };
   }

@@ -8,7 +8,7 @@ O que existe, o que foi decidido e por quê. Complementa a Fase 7 do
 | Tela | Pergunta que responde | Fonte |
 | --- | --- | --- |
 | `/financeiro` | **O que tenho a pagar?** | e-mails marcados como cobrança (boleto, PIX, fatura) |
-| `/financeiro/extrato` | **O que entrou e saiu de fato?** | extrato do banco (OFX/CSV importado) |
+| `/financeiro/extrato` | **O que entrou e saiu de fato?** | extrato do banco (OFX, CSV ou PDF do Nubank importado) |
 
 São coisas diferentes e continuam separadas de propósito. A primeira é
 *detecção* — depende do que chegou por e-mail e nunca é completa. A segunda
@@ -82,6 +82,25 @@ viram sinal. `Saldo` é ignorado — não é lançamento. Sem cabeçalho
 reconhecível, infere pela forma. Verificado contra os formatos de Itaú/Inter,
 Nubank e Bradesco nos testes.
 
+**PDF do Nubank** (`pdf-nubank.ts`): o app do Nubank exporta extrato só em
+PDF, então é o único PDF que o importador lê — reconhecido pelo conteúdo
+(`Movimentações`, `Saldo do dia`, `nubank.com.br`), nunca pela extensão.
+Verificado contra um extrato real de 26 páginas e 66 dias: a soma das
+entradas e das saídas lidas bate **exatamente** com o resumo impresso no
+próprio extrato. O que o texto extraído tem de traiçoeiro: cabeçalho e
+rodapé repetem em toda página, inclusive no meio de um lançamento que
+quebrou de página; **não há coluna de sinal** — os lançamentos abaixo de
+"Total de entradas" são créditos, abaixo de "Total de saídas", débitos; o
+valor ora vem em linha própria, ora no fim da descrição; e a descrição
+ocupa até três linhas. Sem FITID, a dedupe é por impressão digital, como
+no CSV. A leitura de PDF usa limites próprios (120 páginas, 400k
+caracteres) — os limites do leitor de boleto (10 páginas) parariam no
+meio e o importador diria "importado" com um terço dos lançamentos.
+
+Outros bancos em PDF **não** são lidos: o layout muda por banco e cada um
+precisa ser verificado contra um arquivo real. A mensagem de erro diz para
+exportar OFX ou CSV.
+
 **Decodificação** (`ler.ts`): OFX de banco brasileiro vem quase sempre em
 Latin-1 com cabeçalho dizendo `1252`. Ler como UTF-8 transforma "São João" em
 "S�o Jo�o" — e depois quebra a conciliação por nome. UTF-8 estrito primeiro;
@@ -116,6 +135,16 @@ conferindo que `prisma db push` responde "already in sync".
 Até rodar, a tela `/financeiro/extrato` falha ao carregar (tabela
 inexistente). O resto do app não é afetado — nenhuma outra rota consulta
 esses modelos.
+
+Para o PDF, mais um delta, depois do anterior: **`prisma/fase7-pdf.sql`**
+(acrescenta `PDF` ao enum `LedgerSource`; idempotente; não cria tabela,
+então o Supabase não pergunta sobre RLS). Sem ele, importar PDF falha com
+"invalid input value for enum".
+
+Sobre o aviso de RLS do Supabase ao criar tabelas: **"Run and enable RLS"**.
+O app conecta pelo Prisma como o role dono das tabelas, que ignora RLS —
+ligar não muda nada para o app e fecha a API REST (chave `anon`) para essas
+tabelas.
 
 ## O que vem depois
 

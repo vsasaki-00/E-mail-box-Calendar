@@ -856,6 +856,8 @@ enum LedgerSource {
   /// CSV do banco. Sem identidade propria: deduplicado por impressao digital.
   CSV
   /// Digitado por voce.
+  /// Extrato em PDF (Nubank exporta assim). Sem FITID, como o CSV.
+  PDF
   MANUAL
 }
 
