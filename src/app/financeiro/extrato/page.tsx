@@ -4,6 +4,8 @@ import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone
 import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
 import { Nav } from '../../nav';
 import { ImportarExtrato } from './importar-form';
+import { EditarConta } from './conta-form';
+import { nomeDaInstituicao } from '@/core/finance/bancos';
 
 /**
  * Extrato: contas, importacoes e lancamentos. Ver docs/10-financeiro.md
@@ -85,27 +87,45 @@ export default async function PaginaExtrato() {
           {contas.length === 0 ? (
             <p className="vazio">Nenhuma conta ainda. A primeira importação cria uma.</p>
           ) : (
-            contas.map((c) => (
-              <div key={c.id} className="linha" style={{ alignItems: 'center' }}>
-                <span className="titulo-item">
-                  {c.label}
-                  <br />
-                  <span className="sub">
-                    {TIPO_CONTA[c.kind] ?? c.kind}
-                    {c.business ? ` · ${c.business}` : ''}
-                    {' · '}
-                    {c._count.entries} lançamentos
+            contas.map((c) => {
+              const banco = nomeDaInstituicao(c);
+              return (
+                <div key={c.id} className="linha" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <span className="titulo-item" style={{ flex: 1, minWidth: 220 }}>
+                    {c.label}
+                    <br />
+                    <span className="sub">
+                      {/* Banco por extenso, sempre que der: "0260" nao diz nada. */}
+                      {banco ? `${banco} · ` : ''}
+                      {TIPO_CONTA[c.kind] ?? c.kind}
+                      {c.accountId ? ` · ${c.accountId}` : ''}
+                      {c.business ? ` · ${c.business}` : ''}
+                      {' · '}
+                      {c._count.entries} lançamentos
+                    </span>
                   </span>
-                </span>
-                <span style={{ textAlign: 'right' }}>
-                  <strong>{formatarValor(c.balanceCents)}</strong>
-                  <br />
-                  <span className="sub" style={{ fontSize: 11 }}>
-                    {c.balanceAt ? `saldo em ${dia(c.balanceAt)}` : 'sem saldo informado'}
+                  <span style={{ textAlign: 'right' }}>
+                    <strong>{formatarValor(c.balanceCents)}</strong>
+                    <br />
+                    <span className="sub" style={{ fontSize: 11 }}>
+                      {c.balanceAt ? `saldo em ${dia(c.balanceAt)}` : 'sem saldo informado'}
+                    </span>
                   </span>
-                </span>
-              </div>
-            ))
+                  <div style={{ flexBasis: '100%' }}>
+                    <EditarConta
+                      conta={{
+                        id: c.id,
+                        label: c.label,
+                        institution: c.institution,
+                        kind: c.kind,
+                        business: c.business,
+                      }}
+                      negocios={BUSINESS_CONTEXTS}
+                    />
+                  </div>
+                </div>
+              );
+            })
           )}
         </section>
 

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { lerExtrato } from './ler';
 import { hashDoArquivo, impressaoDigital, normalizarDescricao } from './normalizar';
 import type { ContaDoArquivo, LancamentoBruto } from './types';
+import { nomeDoBanco } from '../bancos';
 
 /**
  * Importa um arquivo de extrato para o razao.
@@ -47,13 +48,19 @@ export interface ImportarParams {
   novaConta?: { label: string; kind?: FinancialAccountKind; business?: string; institution?: string };
 }
 
-/** Rotulo automatico quando o OFX cria a conta sozinho. */
-function rotuloAutomatico(conta: ContaDoArquivo): string {
-  const tipo = conta.kind === 'CREDIT_CARD' ? 'Cartão' : 'Conta';
-  const partes = [tipo, conta.bankId ? `banco ${conta.bankId}` : undefined, conta.accountId]
-    .filter(Boolean)
-    .join(' ');
-  return partes || 'Conta importada';
+/**
+ * Rotulo automatico quando o arquivo cria a conta sozinho.
+ *
+ * "Nubank · conta 0001/667683447-8", e nao "Conta banco 0260 ...": o codigo
+ * e verdadeiro e inutil — ninguem sabe de cabeca que 0260 e o Nubank. O
+ * nome e o que torna a conta reconhecivel na tela. Voce pode renomear.
+ */
+export function rotuloAutomatico(conta: ContaDoArquivo): string {
+  const banco = nomeDoBanco(conta.bankId) ?? (conta.bankId ? `banco ${conta.bankId}` : undefined);
+  const tipo = conta.kind === 'CREDIT_CARD' ? 'cartão' : 'conta';
+  const numero = conta.accountId ? `${tipo} ${conta.accountId}` : undefined;
+  const partes = [banco, numero].filter(Boolean);
+  return partes.length > 0 ? partes.join(' · ') : 'Conta importada';
 }
 
 async function resolverConta(
@@ -75,7 +82,7 @@ async function resolverConta(
         label: params.novaConta.label.trim() || rotuloAutomatico(contaDoArquivo),
         kind: params.novaConta.kind ?? contaDoArquivo.kind ?? 'CHECKING',
         business: params.novaConta.business ?? null,
-        institution: params.novaConta.institution ?? null,
+        institution: params.novaConta.institution ?? nomeDoBanco(contaDoArquivo.bankId) ?? null,
         bankId: contaDoArquivo.bankId ?? null,
         accountId: contaDoArquivo.accountId ?? null,
         currency: contaDoArquivo.currency ?? 'BRL',
@@ -95,14 +102,26 @@ async function resolverConta(
         bankId: contaDoArquivo.bankId ?? null,
         accountId: contaDoArquivo.accountId,
       },
-      select: { id: true, label: true, business: true },
+      select: { id: true, label: true, business: true, institution: true },
     });
-    if (existente) return existente;
+    if (existente) {
+      // Conta criada antes de o nome do banco existir: preenche agora, sem
+      // mexer no rotulo — esse pode ser seu.
+      const banco = nomeDoBanco(contaDoArquivo.bankId);
+      if (!existente.institution && banco) {
+        await prisma.financialAccount.update({
+          where: { id: existente.id },
+          data: { institution: banco },
+        });
+      }
+      return { id: existente.id, label: existente.label, business: existente.business };
+    }
 
     return prisma.financialAccount.create({
       data: {
         userId: params.userId,
         label: rotuloAutomatico(contaDoArquivo),
+        institution: nomeDoBanco(contaDoArquivo.bankId) ?? null,
         kind: contaDoArquivo.kind ?? 'CHECKING',
         bankId: contaDoArquivo.bankId ?? null,
         accountId: contaDoArquivo.accountId,
