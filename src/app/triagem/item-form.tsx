@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { corrigirTriagem, type CorrigirResultado } from './actions';
 import { CaixaSelecao } from './selecao';
+import { BotaoLer } from './corpo';
 import { CATEGORIA_LABEL, PRIORIDADE_LABEL } from './rotulos';
 
 /**
@@ -117,22 +118,27 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setAberto((v) => !v)}
-          style={{
-            flex: 'none',
-            padding: '4px 10px',
-            borderRadius: 6,
-            border: '1px solid var(--border)',
-            background: 'transparent',
-            color: 'var(--text)',
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
-        >
-          {aberto ? 'fechar' : 'discordo'}
-        </button>
+        <span style={{ flex: 'none', display: 'inline-flex', gap: 6, alignItems: 'flex-start' }}>
+          {/* "ler" ao lado de "discordo": a decisao de discordar precisa do
+              conteudo, e o conteudo precisa estar a um clique — nao numa
+              outra tela. */}
+          <BotaoLer unifiedItemId={item.unifiedItemId} />
+          <button
+            type="button"
+            onClick={() => setAberto((v) => !v)}
+            style={{
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: '1px solid var(--border)',
+              background: 'transparent',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            {aberto ? 'fechar' : 'discordo'}
+          </button>
+        </span>
       </div>
 
       {aberto && (

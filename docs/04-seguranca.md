@@ -44,7 +44,18 @@ novo consentimento explícito por conexão. Pedir `gmail.modify` no dia 1 para
 
 ## Dados em repouso e retenção
 
-- Corpos de e-mail só são baixados sob demanda e têm TTL de cache configurável.
+- Corpos de e-mail só são baixados sob demanda (rascunho, perfil de voz,
+  extração de cobrança e o "ler" da triagem) e ficam em cache na `Message`.
+  **Ressalva honesta:** o TTL de expiração desse cache ainda não está
+  implementado — hoje o corpo baixado fica até a mensagem sair da janela
+  de sync. Está na lista.
+- O "ler" da triagem mostra o corpo **a você**, nunca ao modelo: a triagem
+  segue classificando só com metadados. HTML de e-mail nunca entra na
+  página — vai para um iframe com `sandbox` (sem script) e um CSP que
+  bloqueia imagem remota, para pixel de rastreamento não avisar o remetente
+  que você abriu. Antes disso passa por uma limpeza (script, iframe, form,
+  `on*`, `javascript:`), defesa em profundidade atrás do sandbox. A rota
+  responde com `Cache-Control: private, no-store`.
 - Anexos **não** são armazenados na fase 1 — são referenciados e baixados do
   provedor no momento do acesso.
 - `DELETE /api/connections/:id` apaga em cascata todo o cache daquela conta.

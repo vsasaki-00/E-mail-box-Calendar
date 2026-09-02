@@ -935,3 +935,34 @@ valor e o vencimento saem certos; PDF corrompido, grande demais, vazio e
 conectada nem token neste ambiente. O código segue as APIs documentadas de
 cada um, mas é a mesma ressalva de sempre — o primeiro anexo real é onde
 isso vai ser posto à prova.
+
+
+## Ler o e-mail para validar a classificação
+
+A tela de triagem foi desenhada para ser escaneável: assunto, remetente,
+trecho, motivo, confiança. Na prática, para dizer "concordo" ou "discordo"
+com segurança, muitas vezes é preciso **ler**. Sem isso a correção vira
+palpite sobre palpite.
+
+O botão **ler**, ao lado do "discordo", abre o corpo contraído na própria
+linha. Três decisões nele:
+
+- **Só o texto novo, por padrão.** Num "Re: Re: Re:" o corpo inteiro é
+  quase todo citação. O separador de texto autoral × citado do perfil de
+  voz (`extractAuthoredText`) corta no primeiro "Em ... escreveu:" e tira
+  as linhas com `>`. "Ver tudo" fica a um clique.
+- **HTML só em sandbox, sem imagem remota.** Ver `04-seguranca.md`.
+- **Link para abrir no provedor** (Gmail ou Outlook, na conta certa, na
+  mensagem certa). Responder e ver anexo continuam sendo lá.
+
+O que isto **não** muda: a triagem continua classificando só com metadados.
+Ler o corpo é ato humano, e o corpo não vai para o modelo por causa disto.
+
+### Triagem profunda — decisão adiada, com critério
+
+Fica registrada a opção de o modelo receber um trecho limitado do corpo
+(sem citação, sem assinatura) quando a classificação por metadados sair
+com confiança baixa — **por caixa e opt-in**, porque corpo de e-mail de
+negócio saindo da infra tem implicação com cliente. A decisão é para depois
+de umas duas semanas de correções: aí dá para medir *quantas correções
+teriam sido evitadas lendo o corpo* em vez de decidir por intuição.
