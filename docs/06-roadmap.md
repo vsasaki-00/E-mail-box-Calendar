@@ -253,16 +253,27 @@ Princípios inegociáveis desta fase:
 
 ---
 
-## Fase 7 — Módulo financeiro completo 🔶 (7B parte 1 entregue)
+## Fase 7 — Módulo financeiro completo 🔶 (7B e 7C entregues; 7A pendente)
 
 **Registrado em 31/08/2026, a pedido do dono. Iniciado em 02/09/2026.**
 Detalhes do que existe e das decisões: [`10-financeiro.md`](10-financeiro.md).
 
-Entregue: modelo de dados (contas, importações, lançamentos com campos de
-conciliação), leitores de OFX e CSV, importação com deduplicação em duas
-camadas, tela `/financeiro/extrato`, SQL delta para produção
-(`prisma/fase7-extrato.sql`). Pendente: conciliação (7B parte 2),
-categorias/regras, análise (7C), WhatsApp (7A).
+Entregue:
+- **7B** — modelo de dados (contas, importações, lançamentos); leitores de
+  OFX, CSV e do PDF de extrato do Nubank; importação com deduplicação em
+  duas camadas; conciliação extrato × cobranças de e-mail, com sugestão
+  pontuada e decisão sua; categorias com regras aprendidas das suas
+  correções. Telas `/financeiro/extrato` e `/financeiro/conciliacao`.
+- **7C** — `/financeiro/analise`: fluxo mês a mês, por negócio,
+  previsibilidade da receita, recorrentes e **torneira vazando**.
+
+Pendente: **7A (WhatsApp)**, que depende de uma decisão de provedor com
+custos na mesa — a Cloud API da Meta exige conta business verificada e
+número dedicado. Enquanto isso, encaminhar para uma caixa conectada já
+aciona a extração existente, sem código novo.
+
+SQL de produção, nesta ordem: `prisma/fase7-extrato.sql`,
+`prisma/fase7-pdf.sql`, `prisma/fase7-regras.sql`.
 
 Hoje `/financeiro` é um **detector de cobranças que chegam por e-mail**: lê
 boleto e PIX do que caiu na caixa e mostra o que vence. Isso responde "o que

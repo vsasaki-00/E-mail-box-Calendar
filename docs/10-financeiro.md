@@ -201,6 +201,45 @@ extrato, com apagar.
 
 Rodam ao fim de cada importação e pelo botão **Categorizar**.
 
+## Análise, previsibilidade e torneira vazando (7C) ✅
+
+`/financeiro/analise`, sobre os últimos 6/12/24 meses. Tudo em
+`core/finance/analise.ts`, puro — recebe lançamentos, devolve números — e
+por isso testado sem banco.
+
+- **Fluxo mês a mês**, entradas × saídas. **Transferência entre contas sai
+  dos totais**: é o mesmo dinheiro contado duas vezes.
+- **Previsibilidade**: quanto da receita é recorrente. Ponderado pela
+  **frequência**, não pela soma das medianas — um cliente que pagou em 3 de
+  9 meses contribui com 3/9. Sem isso a tela dizia "100% previsível ·
+  R$ 22.000 recorrente de R$ 15.667", que se contradiz na mesma linha; foi
+  visto renderizando a página, não pensando nela.
+- **Recorrente** = mesma chave (a de `chaveDeRegra`, quem) em 3+ meses
+  distintos. Soma por mês antes de comparar, para dois pagamentos no mesmo
+  mês não parecerem "caiu pela metade". Compara pela **mediana**, que um
+  mês atípico não move.
+- **Torneira vazando**, só saídas, ordenada pelo que custa por mês:
+  *subiu de preço* (último mês >5% acima da mediana), *pagando duas vezes?*
+  (mesma coisa em duas contas ou dois negócios), *sem categoria* (recorre e
+  ninguém sabe o que é — não é vazamento por definição, é onde um se
+  esconde).
+- **Por negócio**: small multiples, mesma escala entre eles.
+
+### Cores dos gráficos
+
+Validadas com o script do `dataviz`, não a olho. O par verde × vermelho do
+resto do app tem **ΔE 7,1 em deuteranopia** — quem não distingue verde de
+vermelho não leria o gráfico. Nos gráficos, entrada é **azul `#1b6ea8`** e
+saída é **vermelho `#a93a24`**: ΔE 20,2, e ainda com posição fixa, legenda e
+rótulo. As tabelas seguem com verde/vermelho porque lá o sinal (+/−) e a
+coluna já carregam a informação sem depender de cor.
+
+Barras de categoria são série única, no teal do Meridiano: o validador
+reprova esse teal como slot categórico (croma baixo, "lê como cinza"), mas
+esse teste existe para distinguir slots entre si — e não há do que
+distingui-lo. Teal e azul juntos falhariam (ΔE 10,3 para visão normal), e
+por isso não dividem gráfico.
+
 ## Segurança
 
 Extrato bancário é mais sensível que e-mail. Decisões:
