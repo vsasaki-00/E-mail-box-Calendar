@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
-import { runSyncCycle } from '@/core/sync/engine';
+import { contarSyncStatesVencidos, runSyncCycle } from '@/core/sync/engine';
 import { runAutomationCycle } from '@/core/pipeline/run';
 
 /**
@@ -55,15 +55,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const inicio = Date.now();
 
+  // Sobra para a automacao, a serializacao e a margem da plataforma. O ciclo
+  // para de PEGAR recurso novo aos 40s; o que ja comecou termina depois
+  // disso, e e por isso que a folga precisa ser generosa.
+  const ORCAMENTO_SYNC_MS = 40_000;
+
   // Sync e automação são relatados separados: se a automação falhar por falta
   // de ANTHROPIC_API_KEY, o sync ainda rodou, e a resposta precisa dizer isso
   // em vez de virar um 500 que esconde as duas coisas.
-  let sync: { recursos: number; falhas: number } | { erro: string };
+  let sync:
+    | { recursos: number; falhas: number; parciais: number; pendentes: number }
+    | { erro: string };
   try {
-    const resultados = await runSyncCycle();
+    const resultados = await runSyncCycle(new Date(), { orcamentoMs: ORCAMENTO_SYNC_MS });
     sync = {
       recursos: resultados.length,
       falhas: resultados.filter((r) => r.outcome === 'FAILED').length,
+      parciais: resultados.filter((r) => r.outcome === 'PARTIAL').length,
+      // O numero que interessa a quem agenda de fora: enquanto for maior que
+      // zero, ha o que fazer e vale chamar de novo. Uma caixa nova leva
+      // dezenas de voltas ate zerar.
+      pendentes: await contarSyncStatesVencidos(),
     };
   } catch (error) {
     sync = { erro: error instanceof Error ? error.message : 'falha desconhecida' };

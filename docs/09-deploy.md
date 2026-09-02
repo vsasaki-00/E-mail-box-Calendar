@@ -220,6 +220,48 @@ curl -H "x-cron-secret: $CRON_SECRET" https://<seu-domínio>/api/cron/sync
   `pnpm worker` na sua máquina, que sincroniza o mesmo banco.
 - O cron da Vercel **não roda em deploys de preview**, só em produção.
 
+### 3× por dia, pelo GitHub Actions
+
+O limite diário do Hobby é da Vercel, não do app. Quem agenda de fora não
+tem esse limite, e o repositório já está no GitHub — então
+`.github/workflows/sincronizar.yml` dispara `/api/cron/sync` **três vezes por
+dia**: `0 10,16,22 * * *` em UTC, ou 07h, 13h e 19h de Brasília. O cron
+diário do `vercel.json` fica como rede de segurança, para a sincronização
+não parar de vez se o workflow for desligado.
+
+O workflow **chama em laço**, e é isso que faz diferença: cada requisição
+processa o que couber em ~40s e a resposta traz `sync.pendentes`, o número de
+recursos que continuam vencidos. Enquanto for maior que zero, ele chama de
+novo (até 30 voltas). Uma caixa em dia zera na primeira; uma recém-conectada
+leva dezenas. As voltas de carga usam `?automacao=0` para não gastar chamada
+de modelo — a triagem roda uma vez só, no fim.
+
+Para ligar, dois segredos em **Settings → Secrets and variables → Actions →
+New repository secret**:
+
+| Secret | Valor |
+| --- | --- |
+| `MERIDIANO_URL` | a URL do app, sem barra no fim (`https://e-mail-box-calendar.vercel.app`) |
+| `CRON_SECRET` | **o mesmo valor** que está na Vercel |
+
+Se os dois valores de `CRON_SECRET` não baterem, a rota responde 401 e o job
+fica vermelho — o que é o comportamento certo: falha silenciosa aqui seria
+uma caixa parada por dias sem ninguém notar.
+
+Dois detalhes do GitHub que valem saber:
+
+- `schedule` só dispara a partir da **branch padrão** do repositório. Aqui a
+  branch padrão é a de trabalho, então funciona; se um dia surgir uma `main`,
+  o workflow precisa estar nela.
+- O GitHub **desativa** workflows agendados de repositórios sem nenhuma
+  atividade por 60 dias, e avisa por e-mail. Um commit qualquer reativa.
+
+A tela **Conexões** mostra os três horários já convertidos para o fuso do
+perfil, o último ciclo registrado, e avisa em vermelho se `CRON_SECRET` não
+estiver configurada — porque "roda sozinho" é uma promessa invisível, e sem
+isso uma automação desligada tem exatamente a mesma aparência de uma
+funcionando.
+
 ---
 
 ## 5b. Carga inicial pela sua máquina

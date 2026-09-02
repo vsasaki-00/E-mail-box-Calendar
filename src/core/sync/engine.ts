@@ -9,6 +9,7 @@ import {
   type ConnectorCredentials,
 } from '@/lib/connectors/types';
 import { decideAfterError, decideAfterSuccess } from './backoff';
+import { podeIniciarRecurso } from './orcamento';
 import {
   persistCalendars,
   persistEvents,
@@ -36,17 +37,37 @@ export interface SyncResult {
 
 const SEM_ALTERACOES: PersistCounts = { created: 0, updated: 0, deleted: 0, skippedUnknownContainer: 0 };
 
+/**
+ * O que conta como vencido. Uma definicao so, usada para buscar e para
+ * contar: se as duas divergissem, o ciclo diria "acabou" com trabalho
+ * sobrando, ou pediria mais uma volta para sempre.
+ */
+function filtroVencidos(now: Date) {
+  return {
+    OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }],
+    connection: { status: { notIn: ['DISABLED' as const, 'REAUTH_REQUIRED' as const] } },
+  };
+}
+
 /** Estados vencidos, prontos para rodar. Conexoes desativadas ficam de fora. */
 export async function findDueSyncStates(now = new Date(), limit = 20) {
   return prisma.syncState.findMany({
-    where: {
-      OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }],
-      connection: { status: { notIn: ['DISABLED', 'REAUTH_REQUIRED'] } },
-    },
+    where: filtroVencidos(now),
     orderBy: { nextRunAt: { sort: 'asc', nulls: 'first' } },
     take: limit,
     include: { connection: true },
   });
+}
+
+/**
+ * Quantos recursos continuam vencidos.
+ *
+ * E o que permite um disparo externo saber se precisa chamar de novo. Sem
+ * isso, quem agenda de fora so pode chutar um numero de voltas — e chutar
+ * para baixo deixa caixa pela metade, chutar para cima gasta execucao a toa.
+ */
+export async function contarSyncStatesVencidos(now = new Date()): Promise<number> {
+  return prisma.syncState.count({ where: filtroVencidos(now) });
 }
 
 /** Grava credenciais renovadas, sempre cifradas. Nunca em claro, nunca em log. */
@@ -315,12 +336,32 @@ export async function runSync(
   }
 }
 
+export interface CicloOptions {
+  /**
+   * Para de INICIAR recursos novos depois deste tempo. O que ja comecou
+   * termina — cortar no meio perderia a pagina em andamento.
+   *
+   * Existe por causa da funcao serverless: 12 recursos em sequencia, cada um
+   * conversando com Gmail ou Graph, passam dos 60s do plano Hobby com folga,
+   * e ai a plataforma responde uma pagina de texto no lugar do JSON e o
+   * ciclo inteiro se perde. Com orcamento, cada disparo entrega o que deu e
+   * diz que ainda ha trabalho. Sem orcamento (o worker local), roda tudo.
+   */
+  orcamentoMs?: number;
+}
+
 /** Um ciclo do worker: pega o que venceu e executa em sequencia. */
-export async function runSyncCycle(now = new Date()): Promise<SyncResult[]> {
+export async function runSyncCycle(
+  now = new Date(),
+  options: CicloOptions = {},
+): Promise<SyncResult[]> {
   const due = await findDueSyncStates(now);
   const results: SyncResult[] = [];
+  const prazo = options.orcamentoMs === undefined ? undefined : Date.now() + options.orcamentoMs;
 
   for (const syncState of due) {
+    if (!podeIniciarRecurso(results.length, prazo, Date.now())) break;
+
     // Falha de uma conexao nunca derruba o ciclo das outras: e o que sustenta
     // a degradacao por conexao prometida em docs/00-visao.md.
     results.push(await runSync(syncState, new Date()));

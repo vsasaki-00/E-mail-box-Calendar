@@ -3,6 +3,7 @@ import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone
 import { BotaoDesconectar, BotaoSincronizar, BotaoSincronizarTodas } from './sync-controls';
 import { BotaoDesconectarTodas, FilaReconexao } from './reconexao';
 import { BotaoAutorizar, FecharSePopup } from './autorizar';
+import { SincronizacaoAutomatica } from './automatico';
 import { ConfiguracaoDoBanco } from './config-banco';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
@@ -162,6 +163,16 @@ export default async function PaginaConexoes({
               />
             </div>
           </div>
+          <SincronizacaoAutomatica
+            ultimoSync={
+              conexoes.reduce<Date | null>(
+                (maior, c) =>
+                  c.lastSyncAt && (!maior || c.lastSyncAt > maior) ? c.lastSyncAt : maior,
+                null,
+              )
+            }
+            timeZone={tz}
+          />
           {conexoes.length === 0 ? (
             <p className="vazio">Nenhuma conta conectada ainda.</p>
           ) : (

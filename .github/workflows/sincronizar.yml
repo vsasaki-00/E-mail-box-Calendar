@@ -1,0 +1,96 @@
+# Sincronização automática das caixas, 3× por dia.
+#
+# Por que aqui e não no `vercel.json`: o plano Hobby da Vercel só aceita cron
+# uma vez por dia — um `0 7,13,19 * * *` ali faz o deploy ser RECUSADO, não
+# ignorado. O Actions não tem esse limite e roda de graça em repositório
+# público. O `vercel.json` segue com o disparo diário como rede de segurança:
+# se este workflow for desligado, a sincronização não para de vez.
+#
+# Se um dia o projeto virar Pro na Vercel, dá para mover o horário para o
+# `vercel.json` e apagar este arquivo.
+
+name: Sincronizar caixas
+
+on:
+  schedule:
+    # Horários em UTC. São Paulo é UTC-3 o ano todo (não há mais horário de
+    # verão no Brasil desde 2019), então isto é 07h, 13h e 19h de Brasília.
+    - cron: '0 10,16,22 * * *'
+  # Para disparar à mão pela aba Actions, sem esperar o horário.
+  workflow_dispatch:
+
+# Duas execuções ao mesmo tempo brigariam pelo mesmo cursor de cada caixa.
+concurrency:
+  group: sincronizar
+  cancel-in-progress: false
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Rodar o ciclo até não sobrar nada
+        env:
+          URL: ${{ secrets.MERIDIANO_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "Faltam os secrets MERIDIANO_URL e/ou CRON_SECRET." >&2
+            echo "Settings → Secrets and variables → Actions → New repository secret." >&2
+            exit 1
+          fi
+
+          # Cada chamada processa o que couber em ~40s e devolve quantos
+          # recursos continuam vencidos. Uma caixa recém-conectada leva
+          # dezenas de voltas para zerar; uma já em dia zera na primeira.
+          MAX_VOLTAS=30
+
+          for volta in $(seq 1 "$MAX_VOLTAS"); do
+            # `automacao=0`: as voltas de carga não gastam chamada de modelo.
+            # A triagem roda uma vez só, no fim.
+            resposta=$(curl --fail-with-body --silent --show-error \
+              --max-time 120 --retry 2 --retry-delay 10 \
+              -H "x-cron-secret: $CRON_SECRET" \
+              "$URL/api/cron/sync?automacao=0") || {
+                echo "::error::A chamada de sincronização falhou na volta $volta"
+                echo "$resposta"
+                exit 1
+              }
+
+            # Só contagens saem no log — nunca assunto, remetente ou corpo.
+            echo "volta $volta: $(echo "$resposta" | jq -c '.sync')"
+
+            erro=$(echo "$resposta" | jq -r '.sync.erro // empty')
+            if [ -n "$erro" ]; then
+              echo "::error::Ciclo de sync falhou: $erro"
+              exit 1
+            fi
+
+            pendentes=$(echo "$resposta" | jq -r '.sync.pendentes // 0')
+            if [ "$pendentes" -eq 0 ]; then
+              echo "Nada mais vencido depois de $volta volta(s)."
+              break
+            fi
+          done
+
+      - name: Triagem e cobranças
+        env:
+          URL: ${{ secrets.MERIDIANO_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          resposta=$(curl --fail-with-body --silent --show-error \
+            --max-time 120 --retry 2 --retry-delay 10 \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$URL/api/cron/sync")
+          echo "$resposta" | jq -c '{sync, automacao}'
+
+          # A automação falhar não invalida o sync que já aconteceu: vira
+          # aviso, e não job vermelho.
+          erro=$(echo "$resposta" | jq -r '.automacao.erro // empty')
+          if [ -n "$erro" ]; then
+            echo "::warning::Automação não rodou: $erro"
+          fi
