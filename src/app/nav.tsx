@@ -41,6 +41,7 @@ const SUBMENUS: Record<string, { href: string; rotulo: string }[]> = {
   '/financeiro': [
     { href: '/financeiro', rotulo: 'Cobranças' },
     { href: '/financeiro/extrato', rotulo: 'Extrato' },
+    { href: '/financeiro/conciliacao', rotulo: 'Conciliação' },
   ],
 };
 

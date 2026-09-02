@@ -132,6 +132,45 @@ Cobranças · Extrato quando você está na seção). Nela:
   para nome, banco, tipo e negócio; agência e conta não mudam por ali — são
   a identidade que faz o próximo arquivo cair na conta certa.
 
+## Conciliação (7B, parte 2) ✅
+
+`/financeiro/conciliacao`: cada **saída** do extrato cruzada com a
+**cobrança** que chegou por e-mail. O motor (`conciliacao/pontuar.ts`) só
+pontua e explica; quem decide é você. Nunca casa sozinho.
+
+Três sinais, pesos somando 1, mais um bônus pequeno:
+
+| sinal | peso | regra |
+| --- | --- | --- |
+| valor | 0,55 | igual = cheio; até 3% (ou R$ 5) acima = juros; abaixo = desconto; fora disso = zero, e o par morre |
+| data | 0,25 | de 5 dias antes a 1 depois do vencimento = cheio; decai até quase zero em 30 dias; fora disso = zero. Sem vencimento, vale a data do e-mail |
+| nome | 0,20 | fração das palavras do beneficiário presentes na descrição normalizada do extrato ("ltda", "sa", "de" não contam) |
+| tipo | +0,05 | boleto × "pagamento de boleto", pix × "pix" |
+
+Mínimo para virar sugestão: **0,60**. A curva foi calibrada para um caso
+concreto: valor igual **sozinho**, pago três semanas depois, fica abaixo
+do mínimo — sem nome batendo é chute, e dois boletos de R$ 59,90 no mesmo
+mês são comuns.
+
+Cada lado entra em **um** par (guloso, melhor primeiro). A ambiguidade real
+fica para você, com o motivo na tela: "valor igual · 5 dias depois do
+vencimento · nome parcial (porto seguro) · tipo combina".
+
+Estados do lançamento (`matchStatus`): `NONE` → `SUGGESTED` (o motor) →
+`CONFIRMED` / `REJECTED` (você). Sugestões são refeitas a cada busca — uma
+cobrança nova pode ser par melhor — e a que não se sustenta volta a
+`NONE`. Suas decisões ficam quietas. **Confirmar marca a cobrança como
+paga**: não contradiz "o agente nunca marca como paga" — quem clicou foi
+você, e o pagamento está no extrato. Desfazer devolve a cobrança a
+pendente. "Não é" tira o lançamento das sugestões para sempre (até desfazer).
+
+Par manual: para uma saída sem sugestão, você escolhe a cobrança numa lista
+das pendentes — confirmado na hora.
+
+A busca roda sozinha ao fim de cada importação (falhar ali vira aviso, não
+desfaz a importação) e pelo botão **Procurar pares**. Janela: saídas dos
+últimos 120 dias.
+
 ## Segurança
 
 Extrato bancário é mais sensível que e-mail. Decisões:

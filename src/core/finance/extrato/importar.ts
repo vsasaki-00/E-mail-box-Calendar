@@ -256,7 +256,20 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
   }
   await prisma.$transaction(atualizacoes);
 
+  // Ja procura pares: o extrato acabou de chegar e as cobrancas ja estao
+  // la. Falhar aqui nao pode desfazer a importacao — vira aviso.
+  let sugeridos = 0;
+  try {
+    const { sugerirPares } = await import('../conciliacao/sugerir');
+    sugeridos = (await sugerirPares(params.userId)).sugeridos;
+  } catch {
+    // A conciliacao tem sua propria tela e botao; a importacao ja valeu.
+  }
+
   const avisos = [...extrato.avisos];
+  if (sugeridos > 0) {
+    avisos.push(`${sugeridos} par(es) com cobranças de e-mail sugerido(s) — confira em Conciliação.`);
+  }
   if (duplicados > 0) {
     avisos.push(`${duplicados} lançamento(s) já existiam (de outro arquivo) e não foram repetidos.`);
   }
