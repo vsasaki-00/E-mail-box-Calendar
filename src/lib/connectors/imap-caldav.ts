@@ -25,8 +25,12 @@ import {
   verifyCaldavConnection,
   type CaldavConnectionConfig,
 } from './caldav-client';
-import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
-import { envNumero } from '@/lib/env';
+import {
+  lerJanelaDoCursor,
+  parseContainerCursor,
+  serializeContainerCursor,
+} from './container-cursor';
+import { assinaturaJanela, janelaCalendario } from './janela-calendario';
 
 /**
  * Conector IMAP + CalDAV. Atende o Apple iCloud e qualquer provedor generico
@@ -137,18 +141,6 @@ function caldavConfigDe(ctx: ConnectorContext): CaldavConnectionConfig {
   };
 }
 
-function janelaPadrao(): { since: Date; until: Date } {
-  const mesesPassado = envNumero(process.env.SYNC_CALENDAR_PAST_MONTHS, 1);
-  const mesesFuturo = envNumero(process.env.SYNC_CALENDAR_FUTURE_MONTHS, 12);
-
-  const since = new Date();
-  since.setMonth(since.getMonth() - mesesPassado);
-  const until = new Date();
-  until.setMonth(until.getMonth() + mesesFuturo);
-
-  return { since, until };
-}
-
 export const imapCaldavConnector: Connector = {
   provider: 'IMAP_CALDAV',
   capabilities: imapCaldavCapabilities,
@@ -198,9 +190,18 @@ export const imapCaldavConnector: Connector = {
   },
 
   async fetchEvents(ctx, options): Promise<Page<RawEvent>> {
-    const cursorAnterior = parseContainerCursor(options.cursor);
     const config = caldavConfigDe(ctx);
-    const janela = options.window ?? janelaPadrao();
+    const janela = options.window ?? janelaCalendario();
+
+    // Mesma regra dos outros conectores: janela nova, cursor velho fora.
+    // Aqui a janela ate viaja em cada requisicao, mas o sync-token do
+    // servidor so conta o que MUDOU — eventos que passaram a caber na
+    // janela nova nunca chegariam. Ver janela-calendario.ts.
+    const assinatura = assinaturaJanela();
+    const cursorAnterior =
+      lerJanelaDoCursor(options.cursor) === assinatura
+        ? parseContainerCursor(options.cursor)
+        : {};
 
     const calendarios = await listCaldavCalendars(config);
 
@@ -221,7 +222,11 @@ export const imapCaldavConnector: Connector = {
       if (resultado.syncToken) tokens[calendario.providerId] = resultado.syncToken;
     }
 
-    return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
+    return {
+      items: itens,
+      deletedProviderIds: removidos,
+      cursor: serializeContainerCursor(tokens, assinatura),
+    };
   },
 
   async fetchMessageBody(ctx, providerId) {

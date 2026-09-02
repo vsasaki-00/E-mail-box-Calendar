@@ -14,7 +14,12 @@ import { ConnectorError } from './types';
 import { ensureGoogleAccessToken } from './google-auth';
 import { GOOGLE_TOKEN_ENDPOINT, mapGoogleError } from './google-errors';
 import { createPkcePair, type PkcePair } from './pkce';
-import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
+import {
+  lerJanelaDoCursor,
+  parseContainerCursor,
+  serializeContainerCursor,
+} from './container-cursor';
+import { assinaturaJanela, janelaCalendario } from './janela-calendario';
 import {
   encodeMailPageToken,
   decodeMailPageToken,
@@ -310,8 +315,16 @@ export const googleConnector: Connector = {
   },
 
   async fetchEvents(ctx, options): Promise<Page<RawEvent>> {
-    const janelaCursor = parseContainerCursor(options.cursor);
     const calendarios = await googleConnector.listCalendars(ctx);
+
+    // O Google recusa `timeMin`/`timeMax` junto com `syncToken`: a janela do
+    // primeiro full sync fica valendo para sempre. Quando ela muda, o unico
+    // caminho e descartar os syncTokens e refazer. Ver janela-calendario.ts.
+    const assinatura = assinaturaJanela();
+    const janelaCursor =
+      lerJanelaDoCursor(options.cursor) === assinatura
+        ? parseContainerCursor(options.cursor)
+        : {};
 
     const itens: RawEvent[] = [];
     const removidos: string[] = [];
@@ -333,7 +346,7 @@ export const googleConnector: Connector = {
     return {
       items: itens,
       deletedProviderIds: removidos,
-      cursor: serializeContainerCursor(tokens),
+      cursor: serializeContainerCursor(tokens, assinatura),
     };
   },
 
@@ -676,8 +689,8 @@ async function fetchEventsDoCalendario(
             ? { syncToken: syncTokenAnterior }
             : {
                 orderBy: 'startTime',
-                timeMin: (janela?.since ?? janelaPadrao().since).toISOString(),
-                timeMax: (janela?.until ?? janelaPadrao().until).toISOString(),
+                timeMin: (janela?.since ?? janelaCalendario().since).toISOString(),
+                timeMax: (janela?.until ?? janelaCalendario().until).toISOString(),
               }),
         },
       );
@@ -711,18 +724,6 @@ async function fetchEventsDoCalendario(
   }
 
   return { itens, removidos, syncToken };
-}
-
-function janelaPadrao(): { since: Date; until: Date } {
-  const mesesPassado = envNumero(process.env.SYNC_CALENDAR_PAST_MONTHS, 1);
-  const mesesFuturo = envNumero(process.env.SYNC_CALENDAR_FUTURE_MONTHS, 12);
-
-  const since = new Date();
-  since.setMonth(since.getMonth() - mesesPassado);
-  const until = new Date();
-  until.setMonth(until.getMonth() + mesesFuturo);
-
-  return { since, until };
 }
 
 // ---------------------------------------------------------------------------

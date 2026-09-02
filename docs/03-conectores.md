@@ -191,3 +191,40 @@ saber reagir sem entender o provedor:
 | `NOT_FOUND` | item some do cache, sem erro |
 | `TRANSIENT` | retry com backoff, até N vezes |
 | `PERMANENT` | marca `ERROR`, gera alerta, para o recurso |
+
+## A janela do calendário vive dentro do cursor
+
+O detalhe menos óbvio de todo o sync, e o que fez a agenda ficar vazia em
+produção mesmo depois de a configuração ser corrigida.
+
+A janela (`SYNC_CALENDAR_PAST_MONTHS` / `SYNC_CALENDAR_FUTURE_MONTHS`) **não
+é reenviada a cada sincronização**. Ela é gravada no token de incremental
+pelo próprio provedor:
+
+- **Google**: a API rejeita `timeMin`/`timeMax` junto com `syncToken`. A
+  janela é a do primeiro `list`, e vale para todos os incrementais seguintes.
+- **Microsoft**: o `@odata.deltaLink` volta com `startDateTime`/`endDateTime`
+  embutidos e é seguido verbatim.
+- **CalDAV**: a janela viaja em cada requisição, mas o `sync-token` só
+  reporta o que **mudou** — um evento que passou a caber na janela nova, sem
+  ter sido editado, nunca chegaria.
+
+Consequência: enquanto existir cursor, mudar a configuração não muda nada. E
+mesmo com tudo certo a janela envelhece, porque é ancorada em "hoje" — um
+cursor criado hoje enxerga até daqui a 12 meses e nunca mais avança, então o
+horizonte encolhe um dia por dia, em silêncio.
+
+A solução está em `src/lib/connectors/janela-calendario.ts`: uma assinatura
+(`p{passado}f{futuro}@{AAAA-MM}`) viaja junto com o cursor, na chave
+reservada `__janela`. Quando ela não bate com a atual, os tokens são
+descartados e a busca é refeita na janela nova. A âncora é o **mês**, não o
+instante — dois syncs no mesmo mês precisam concordar, senão todo sync
+viraria full sync. Na prática: um full sync de agenda por mês, o que é
+barato (poucos eventos, `upsert` idempotente) e mantém o horizonte rolando.
+
+Cursores gravados antes desta mudança não têm assinatura nenhuma, e por isso
+refazem a busca sozinhos na primeira sincronização — que é exatamente o
+reparo de que precisavam.
+
+A tela `/agenda` mostra o período em vigor e marca a conta que ainda está com
+`período antigo no cursor`.

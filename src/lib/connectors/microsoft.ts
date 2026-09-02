@@ -14,7 +14,12 @@ import { ConnectorError } from './types';
 import { ensureMicrosoftAccessToken, fetchMicrosoftAccountEmail } from './microsoft-auth';
 import { MICROSOFT_TOKEN_ENDPOINT_BASE, mapMicrosoftError } from './microsoft-errors';
 import { createPkcePair, type PkcePair } from './pkce';
-import { parseContainerCursor, serializeContainerCursor } from './container-cursor';
+import {
+  lerJanelaDoCursor,
+  parseContainerCursor,
+  serializeContainerCursor,
+} from './container-cursor';
+import { assinaturaJanela, janelaCalendario } from './janela-calendario';
 import {
   DEFAULT_SYNCED_FOLDER_ALIASES,
   folderRole,
@@ -421,10 +426,16 @@ export const microsoftConnector: Connector = {
   },
 
   async fetchEvents(ctx, options): Promise<Page<RawEvent>> {
-    const cursorAnterior = parseContainerCursor(options.cursor);
     const calendarios = await microsoftConnector.listCalendars(ctx);
 
-    const inicial = options.pageToken ? parseContainerCursor(options.pageToken) : cursorAnterior;
+    // A janela mora dentro do deltaLink, nao na chamada. Se a configuracao
+    // mudou (ou virou o mes), os deltaLinks guardados apontam para a janela
+    // velha e precisam ser jogados fora — senao a correcao nunca chega ao
+    // provedor. Ver janela-calendario.ts.
+    const assinatura = assinaturaJanela();
+    const anterior = options.pageToken ?? options.cursor;
+    const inicial =
+      lerJanelaDoCursor(anterior) === assinatura ? parseContainerCursor(anterior) : {};
 
     const itens: RawEvent[] = [];
     const removidos: string[] = [];
@@ -458,11 +469,15 @@ export const microsoftConnector: Connector = {
       return {
         items: itens,
         deletedProviderIds: removidos,
-        nextPageToken: serializeContainerCursor(tokens),
+        nextPageToken: serializeContainerCursor(tokens, assinatura),
       };
     }
 
-    return { items: itens, deletedProviderIds: removidos, cursor: serializeContainerCursor(tokens) };
+    return {
+      items: itens,
+      deletedProviderIds: removidos,
+      cursor: serializeContainerCursor(tokens, assinatura),
+    };
   },
 
   async fetchMessageBody(ctx, providerId) {
@@ -713,7 +728,7 @@ async function fetchEventsDoCalendario(
   let paginas = 0;
 
   if (!url) {
-    const janelaEfetiva = janela ?? janelaPadrao();
+    const janelaEfetiva = janela ?? janelaCalendario();
     const alvo = new URL(`${GRAPH_BASE}/me/calendars/${calendarId}/calendarView/delta`);
     alvo.searchParams.set('startDateTime', janelaEfetiva.since.toISOString());
     alvo.searchParams.set('endDateTime', janelaEfetiva.until.toISOString());
@@ -764,19 +779,4 @@ async function fetchEventsDoCalendario(
   return { itens, removidos, deltaLink };
 }
 
-/**
- * Janela padrao do full sync. Assim como no Google, ela fica "gravada" no
- * deltaLink inicial: chamadas de incremental seguintes reusam a mesma janela
- * automaticamente, sem precisar reenviar startDateTime/endDateTime.
- */
-function janelaPadrao(): { since: Date; until: Date } {
-  const mesesPassado = envNumero(process.env.SYNC_CALENDAR_PAST_MONTHS, 1);
-  const mesesFuturo = envNumero(process.env.SYNC_CALENDAR_FUTURE_MONTHS, 12);
 
-  const since = new Date();
-  since.setMonth(since.getMonth() - mesesPassado);
-  const until = new Date();
-  until.setMonth(until.getMonth() + mesesFuturo);
-
-  return { since, until };
-}

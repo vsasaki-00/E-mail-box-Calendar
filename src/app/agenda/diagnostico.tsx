@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/db';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone, isoDateInZone } from '@/core/time/zone';
+import { lerJanelaDoCursor } from '@/lib/connectors/container-cursor';
+import { assinaturaJanela, janelaCalendario } from '@/lib/connectors/janela-calendario';
 
 /**
  * Por que a agenda está vazia.
@@ -49,7 +51,15 @@ export async function DiagnosticoAgendaVazia({
         _count: { select: { calendarSources: true, events: true } },
         syncStates: {
           where: { resource: 'CALENDAR' },
-          select: { status: true, lastSyncAt: true, failureCount: true, pageToken: true },
+          select: {
+            status: true,
+            lastSyncAt: true,
+            failureCount: true,
+            pageToken: true,
+            // A janela em vigor viaja DENTRO do cursor: e a unica forma de
+            // ver que uma conta ainda busca no periodo antigo.
+            cursor: true,
+          },
         },
       },
     }),
@@ -61,9 +71,18 @@ export async function DiagnosticoAgendaVazia({
     }),
   ]);
 
+  const assinatura = assinaturaJanela();
+  const janela = janelaCalendario();
+
   return (
     <section className="card" style={{ borderLeft: '3px solid var(--zenite)' }}>
       <h2>Por que a agenda está vazia</h2>
+
+      <p className="sub" style={{ marginBottom: 10, fontSize: 11 }}>
+        Período buscado nos provedores: <strong>{comAno(janela.since, timeZone)}</strong> a{' '}
+        <strong>{comAno(janela.until, timeZone)}</strong>. Nada fora disso é trazido — ajuste com{' '}
+        <code>SYNC_CALENDAR_PAST_MONTHS</code> e <code>SYNC_CALENDAR_FUTURE_MONTHS</code>.
+      </p>
 
       {totalEventos > 0 ? (
         <p className="sub" style={{ marginBottom: 10 }}>
@@ -118,7 +137,14 @@ export async function DiagnosticoAgendaVazia({
                       : 'nunca rodou'
                     : c._count.calendarSources === 0
                       ? 'rodou, mas não achou calendário na conta'
-                      : c._count.events === 0
+                      : // O provedor grava a janela dentro do próprio
+                        // cursor (syncToken do Google, deltaLink do Graph):
+                        // enquanto o cursor for antigo, a conta continua
+                        // buscando no período velho, por mais certa que a
+                        // configuração esteja aqui.
+                        lerJanelaDoCursor(estado.cursor ?? undefined) !== assinatura
+                        ? 'período antigo no cursor — o próximo sync refaz a busca inteira'
+                        : c._count.events === 0
                         ? 'achou calendário, não gravou evento'
                         : estado.pageToken
                           ? 'em andamento — sincronize de novo'
@@ -156,8 +182,8 @@ export async function DiagnosticoAgendaVazia({
 
       <p className="sub" style={{ marginTop: 12, fontSize: 11 }}>
         &quot;nunca rodou&quot; ou erro de permissão → reconecte a conta em{' '}
-        <a href="/conexoes">Conexões</a>. &quot;em andamento&quot; → clique em Sincronizar mais
-        vezes; cada volta traz um pedaço.
+        <a href="/conexoes">Conexões</a>. &quot;em andamento&quot; e &quot;período antigo no
+        cursor&quot; → clique em Sincronizar mais vezes; cada volta traz um pedaço.
       </p>
     </section>
   );
