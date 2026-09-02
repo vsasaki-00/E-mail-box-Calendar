@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { DEFAULT_TIMEZONE, formatDateTime } from '@/core/time/zone';
+import { DEFAULT_TIMEZONE, formatDateTime, formatInZone, isoDateInZone } from '@/core/time/zone';
 
 /**
  * Por que a agenda está vazia.
@@ -14,6 +14,21 @@ import { DEFAULT_TIMEZONE, formatDateTime } from '@/core/time/zone';
  * Só aparece quando não há evento nenhum na visão atual. Com a agenda
  * cheia, ele some.
  */
+
+/**
+ * Data COM ano.
+ *
+ * O formato curto do resto do app omite o ano, e num intervalo isso vira
+ * absurdo: "entre 16/11 e 26/08" parece erro de leitura quando na verdade
+ * são anos diferentes. Aqui o ano é a informação que importa.
+ */
+function comAno(instante: Date, timeZone: string): string {
+  return formatInZone(instante, timeZone, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
 
 export async function DiagnosticoAgendaVazia({
   userId,
@@ -52,11 +67,21 @@ export async function DiagnosticoAgendaVazia({
 
       {totalEventos > 0 ? (
         <p className="sub" style={{ marginBottom: 10 }}>
-          Existem <strong>{totalEventos} eventos</strong> guardados, entre{' '}
-          {extremos._min.startsAt ? formatDateTime(extremos._min.startsAt, timeZone) : '—'} e{' '}
-          {extremos._max.startsAt ? formatDateTime(extremos._max.startsAt, timeZone) : '—'}. Se
-          nada aparece aqui, eles estão fora do período que esta tela mostra — navegue até essas
-          datas.
+          Existem <strong>{totalEventos} eventos</strong> guardados, de{' '}
+          <strong>{extremos._min.startsAt ? comAno(extremos._min.startsAt, timeZone) : '—'}</strong>{' '}
+          a{' '}
+          <strong>{extremos._max.startsAt ? comAno(extremos._max.startsAt, timeZone) : '—'}</strong>.
+          Se nada aparece aqui, eles estão fora do período que esta tela mostra.
+          {extremos._max.startsAt && (
+            <>
+              {' '}
+              {/* Levar ate la vale mais que instruir a navegar: com meses de
+                  distancia, "navegue" e varios cliques as cegas. */}
+              <a href={`/agenda?vista=mes&semana=${isoDateInZone(extremos._max.startsAt, timeZone)}`}>
+                Ir para o mês do evento mais recente →
+              </a>
+            </>
+          )}
         </p>
       ) : (
         <p className="sub" style={{ marginBottom: 10 }}>
@@ -82,15 +107,22 @@ export async function DiagnosticoAgendaVazia({
               // consertos completamente diferentes.
               const situacao = !estado
                 ? 'sem registro de sync — reconecte a conta'
-                : !estado.lastSyncAt
-                  ? 'nunca rodou'
-                  : c._count.calendarSources === 0
-                    ? 'rodou, mas não achou calendário na conta'
-                    : c._count.events === 0
-                      ? 'achou calendário, não gravou evento'
-                      : estado.pageToken
-                        ? 'em andamento — sincronize de novo'
-                        : 'ok';
+                : estado.status === 'RUNNING'
+                  ? 'sincronizando agora — recarregue em instantes'
+                  : !estado.lastSyncAt
+                    ? // Sem lastSyncAt mas COM evento gravado: a execução
+                      // escreveu e ainda não fechou. Dizer "nunca rodou" ali
+                      // seria contradizer a coluna ao lado.
+                      c._count.events > 0
+                      ? 'sincronizando agora — recarregue em instantes'
+                      : 'nunca rodou'
+                    : c._count.calendarSources === 0
+                      ? 'rodou, mas não achou calendário na conta'
+                      : c._count.events === 0
+                        ? 'achou calendário, não gravou evento'
+                        : estado.pageToken
+                          ? 'em andamento — sincronize de novo'
+                          : 'ok';
 
               return (
                 <tr key={c.id} style={{ borderTop: '1px solid var(--border)' }}>
