@@ -175,7 +175,7 @@ conta conectada.
 
 ---
 
-## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A a 5D entregues)
+## Fase 5 — Triagem, painel financeiro e resposta assistida 🔶 (5A a 5D entregues, 5A em uso real)
 
 Reflexão completa, com as armadilhas e o raciocínio por trás do
 faseamento: [`07-agente-de-triagem.md`](07-agente-de-triagem.md).
@@ -192,10 +192,13 @@ sub-fases de risco crescente, cada uma utilizável sozinha:
   estruturada, avaliação contra histórico, card na Torre de Controle e a
   tela `/perfis` (negócio, papel, objetivo, calibragem, VIPs por caixa)
   e a tela `/triagem` (ordenada por urgência, com correção que alimenta o
-  `TriageFeedback`) estão implementados e testados. **A chamada real ao
-  modelo nunca foi exercitada** — não há API key neste ambiente, então
-  nada aqui mede se a classificação ACERTA, só que o sistema em volta dela
-  se comporta.
+  `TriageFeedback`) estão implementados e testados. **Exercitada de verdade
+  em 02/09/2026**, em produção, contra as seis caixas — a primeira
+  classificação real do projeto. Até então toda tentativa morria numa
+  variável de ambiente vazia (`TRIAGE_MODEL=""`, que `??` não pegava). O que
+  ainda não foi medido é se a classificação ACERTA: isso depende das
+  correções do dono se acumularem em `TriageFeedback`, e do preenchimento
+  dos perfis de caixa, que é o contexto que o classificador recebe.
 - **5B — Painel financeiro** ✅: extração estruturada das cobranças (valor,
   vencimento, beneficiário, tipo, linha digitável, PIX). Tela `/financeiro`.
   A leitura de boleto (linha digitável de título e de arrecadação, com
