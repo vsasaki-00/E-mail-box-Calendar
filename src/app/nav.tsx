@@ -33,7 +33,27 @@ const ITENS = [
   { href: '/conexoes', rotulo: 'Conexões', Icone: IconeConexoes },
 ] as const;
 
+/**
+ * Seções que têm sub-páginas. A barra principal marca a seção; uma segunda
+ * linha, só quando você está nela, mostra as sub-páginas.
+ */
+const SUBMENUS: Record<string, { href: string; rotulo: string }[]> = {
+  '/financeiro': [
+    { href: '/financeiro', rotulo: 'Cobranças' },
+    { href: '/financeiro/extrato', rotulo: 'Extrato' },
+  ],
+};
+
+/** A seção principal de uma rota: /financeiro/extrato → /financeiro. */
+function secaoDe(atual: string | undefined): string | undefined {
+  if (!atual) return undefined;
+  return Object.keys(SUBMENUS).find((base) => atual === base || atual.startsWith(`${base}/`)) ?? atual;
+}
+
 export function Nav({ atual, direita }: { atual?: string; direita?: React.ReactNode }) {
+  const secao = secaoDe(atual);
+  const submenu = secao ? SUBMENUS[secao] : undefined;
+
   return (
     <div className="barra">
       <a href="/" className="marca">
@@ -46,12 +66,22 @@ export function Nav({ atual, direita }: { atual?: string; direita?: React.ReactN
 
       <nav className="nav" aria-label="Seções">
         {ITENS.map(({ href, rotulo, Icone }) => (
-          <a key={href} href={href} className={atual === href ? 'ativo' : undefined}>
+          <a key={href} href={href} className={secao === href ? 'ativo' : undefined}>
             <Icone size={14} />
             {rotulo}
           </a>
         ))}
       </nav>
+
+      {submenu && (
+        <nav className="subnav" aria-label="Sub-seções">
+          {submenu.map(({ href, rotulo }) => (
+            <a key={href} href={href} className={atual === href ? 'ativo' : undefined}>
+              {rotulo}
+            </a>
+          ))}
+        </nav>
+      )}
 
       {direita ? <div className="sub">{direita}</div> : null}
 

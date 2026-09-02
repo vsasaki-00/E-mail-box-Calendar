@@ -112,6 +112,26 @@ horário, parcela, e os prefixos "compra cartão", "pix enviado". A original
 fica intacta para auditoria; a normalizada pode mudar quando o normalizador
 melhorar, e a dedupe por FITID não depende dela.
 
+## A tela do extrato
+
+`/financeiro/extrato` é sub-página de **Financeiro** (a barra mostra
+Cobranças · Extrato quando você está na seção). Nela:
+
+- **Filtro por período** — atalhos (este mês, mês passado, 30/90 dias, ano,
+  tudo) e datas livres, tudo por URL (`?periodo=` ou `?de=&ate=`), sem
+  JavaScript: o link é o estado, dá para mandar para alguém. O período é
+  resolvido **no fuso do usuário** (`periodo.ts`): "este mês" às 23h de
+  31/08 em São Paulo ainda é agosto, e um filtro feito em UTC deixaria o
+  último dia do mês de fora — justamente onde ficam os pagamentos de fim de
+  mês. O "até" é inclusivo.
+- **Totais do período** somados no banco (entradas, saídas, líquido), não
+  só das linhas mostradas — a lista para em 300 e diz "mostrando N de M".
+- **Filtro por conta**, quando há mais de uma.
+- **Nome do banco** por extenso (`bancos.ts`, código COMPE → nome): "Nubank
+  · conta 0001/…" em vez de "banco 0260". Botão **editar** em cada conta
+  para nome, banco, tipo e negócio; agência e conta não mudam por ali — são
+  a identidade que faz o próximo arquivo cair na conta certa.
+
 ## Segurança
 
 Extrato bancário é mais sensível que e-mail. Decisões:

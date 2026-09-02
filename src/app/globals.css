@@ -192,6 +192,34 @@ header.topo h1 {
   opacity: 0.8;
 }
 
+/* Segunda linha da barra: sub-páginas da seção ativa. */
+.subnav {
+  flex-basis: 100%;
+  display: flex;
+  gap: 4px;
+  padding: 2px 0 0 0;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+
+.subnav a {
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+
+.subnav a:hover {
+  color: var(--text);
+}
+
+.subnav a.ativo {
+  color: var(--meridiano);
+  border-bottom-color: var(--meridiano);
+}
+
 /* ---------------------------------------------------------------------------
    Cartões
    --------------------------------------------------------------------------- */
