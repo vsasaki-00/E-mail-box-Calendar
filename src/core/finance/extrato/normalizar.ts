@@ -13,6 +13,9 @@ import { createHash } from 'node:crypto';
 
 /** Ruido que todo banco brasileiro acrescenta e que nao identifica nada. */
 const RUIDO = [
+  // Parcela ANTES da data: "parc 03/12" parece uma data e seria comida
+  // pela metade, deixando um "parc" orfao.
+  /\bparc(ela)?\.?\s*\d{1,2}\s*\/\s*\d{1,2}\b/g,
   // Datas embutidas: 15/08, 15/08/26, 15/08/2026
   /\b\d{1,2}\/\d{1,2}(\/\d{2,4})?\b/g,
   // Final de cartao: ****1234, *1234, final 1234
@@ -22,8 +25,6 @@ const RUIDO = [
   /\b\d{6,}\b/g,
   // Horarios: 12:34, 12:34:56
   /\b\d{1,2}:\d{2}(:\d{2})?\b/g,
-  // Parcela: 03/12, parc 3/12
-  /\bparc(ela)?\.?\s*\d{1,2}\s*\/\s*\d{1,2}\b/g,
   // Prefixos operacionais que nao dizem QUEM
   /\b(compra|pagamento|pagto|pgto|transferencia|transf|debito|credito|envio|recebimento)\s+(no|de|em|com|via|por)?\s*(cartao|debito|credito|pix|ted|doc|boleto)?\b/g,
   /\b(pix|ted|doc)\s+(enviad[oa]|recebid[oa])\b/g,

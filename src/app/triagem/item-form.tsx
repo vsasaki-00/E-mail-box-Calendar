@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState, useState } from 'react';
-import { corrigirTriagem, type CorrigirResultado } from './actions';
+import { useActionState, useState, useTransition } from 'react';
+import { confirmarTriagem, corrigirTriagem, type CorrigirResultado } from './actions';
+import { REASON_CONFIRMED } from '@/core/triage/types';
 import { CaixaSelecao } from './selecao';
 import { BotaoLer } from './corpo';
 import { CATEGORIA_LABEL, PRIORIDADE_LABEL } from './rotulos';
@@ -60,8 +61,21 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
     null,
   );
 
+  const [confirmando, iniciarConfirmacao] = useTransition();
+  const [erroConfirmacao, setErroConfirmacao] = useState<string | null>(null);
+
   const baixaConfianca = item.confidence < LIMITE_BAIXA_CONFIANCA;
-  const corrigido = item.source === 'USER';
+  const confirmado = item.source === 'USER' && item.reason === REASON_CONFIRMED;
+  const corrigido = item.source === 'USER' && !confirmado;
+  const decidido = corrigido || confirmado;
+
+  function confirmar() {
+    setErroConfirmacao(null);
+    iniciarConfirmacao(async () => {
+      const resultado = await confirmarTriagem(item.unifiedItemId);
+      if (!resultado.ok) setErroConfirmacao(resultado.erro ?? 'Falha ao confirmar');
+    });
+  }
 
   return (
     <div
@@ -90,6 +104,11 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
                 corrigido por você
               </span>
             )}
+            {confirmado && (
+              <span className="pill ok" title="Você confirmou — não será reclassificado">
+                confirmado por você
+              </span>
+            )}
             {item.copyCount > 1 && (
               <span className="sub" style={{ fontSize: 11 }}>
                 {item.copyCount} caixas
@@ -107,7 +126,7 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
             // de so ver um rotulo.
             <div className="sub" style={{ fontSize: 12, marginTop: 4, fontStyle: 'italic' }}>
               {item.reason}
-              {!corrigido && ` · confiança ${Math.round(item.confidence * 100)}%`}
+              {!decidido && ` · confiança ${Math.round(item.confidence * 100)}%`}
               {/* QUANDO foi classificado, e não a data do e-mail.
                   Sem isto, uma falha antiga guardada no banco parece um erro
                   de agora: o motivo fica lado a lado com a data da mensagem,
@@ -123,6 +142,33 @@ export function ItemTriagemLinha({ item }: { item: ItemTriagem }) {
               conteudo, e o conteudo precisa estar a um clique — nao numa
               outra tela. */}
           <BotaoLer unifiedItemId={item.unifiedItemId} />
+          {/* "confirmo" so enquanto nao ha decisao sua: depois de corrigir
+              ou confirmar, a linha ja e sua e o botao viraria ruido. */}
+          {!decidido && (
+            <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+              <button
+                type="button"
+                onClick={confirmar}
+                disabled={confirmando}
+                title="A classificação está certa. Vira feedback positivo e a linha não é reclassificada."
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  border: '1px solid var(--ok)',
+                  background: 'transparent',
+                  color: 'var(--ok)',
+                  cursor: confirmando ? 'progress' : 'pointer',
+                  fontSize: 12,
+                  opacity: confirmando ? 0.6 : 1,
+                }}
+              >
+                {confirmando ? 'confirmando…' : 'confirmo'}
+              </button>
+              {erroConfirmacao && (
+                <span style={{ fontSize: 11, color: 'var(--crit)', maxWidth: 200 }}>{erroConfirmacao}</span>
+              )}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setAberto((v) => !v)}

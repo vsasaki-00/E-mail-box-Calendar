@@ -11,7 +11,7 @@
 --
 -- Validado assim: aplicado num Postgres 16 limpo e, em seguida,
 -- `prisma db push` contra o mesmo banco respondeu "The database is already
--- in sync with the Prisma schema" — 19 tabelas.
+-- in sync with the Prisma schema" — 22 tabelas (fase 7B incluida).
 --
 -- Se o schema.prisma mudar depois, NAO edite este arquivo: regenere com o
 -- comando acima, ou rode `pnpm db:push` que aplica so a diferenca.
@@ -79,6 +79,15 @@ CREATE TYPE "BillStatus" AS ENUM ('PENDING', 'PAID', 'IGNORED');
 
 -- CreateEnum
 CREATE TYPE "TriageCalibration" AS ENUM ('CONSERVATIVE', 'BALANCED', 'AGGRESSIVE');
+
+-- CreateEnum
+CREATE TYPE "FinancialAccountKind" AS ENUM ('CHECKING', 'SAVINGS', 'CREDIT_CARD', 'CASH', 'INVESTMENT', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "LedgerSource" AS ENUM ('OFX', 'CSV', 'MANUAL');
+
+-- CreateEnum
+CREATE TYPE "MatchStatus" AS ENUM ('NONE', 'SUGGESTED', 'CONFIRMED', 'REJECTED');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -442,6 +451,72 @@ CREATE TABLE "TriageFeedback" (
     CONSTRAINT "TriageFeedback_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "FinancialAccount" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "institution" TEXT,
+    "kind" "FinancialAccountKind" NOT NULL DEFAULT 'CHECKING',
+    "currency" TEXT NOT NULL DEFAULT 'BRL',
+    "business" TEXT,
+    "bankId" TEXT,
+    "accountId" TEXT,
+    "balanceCents" INTEGER,
+    "balanceAt" TIMESTAMP(3),
+    "archived" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "FinancialAccount_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StatementImport" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "accountId" TEXT NOT NULL,
+    "source" "LedgerSource" NOT NULL,
+    "fileName" TEXT,
+    "fileHash" TEXT NOT NULL,
+    "periodStart" TIMESTAMP(3),
+    "periodEnd" TIMESTAMP(3),
+    "entriesFound" INTEGER NOT NULL DEFAULT 0,
+    "entriesCreated" INTEGER NOT NULL DEFAULT 0,
+    "entriesDuplicate" INTEGER NOT NULL DEFAULT 0,
+    "warnings" JSONB NOT NULL DEFAULT '[]',
+    "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "StatementImport_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "LedgerEntry" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "accountId" TEXT NOT NULL,
+    "statementId" TEXT,
+    "postedAt" TIMESTAMP(3) NOT NULL,
+    "amountCents" INTEGER NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'BRL',
+    "description" TEXT NOT NULL,
+    "normalized" TEXT NOT NULL,
+    "source" "LedgerSource" NOT NULL,
+    "fitId" TEXT,
+    "fingerprint" TEXT NOT NULL,
+    "business" TEXT,
+    "category" TEXT,
+    "matchStatus" "MatchStatus" NOT NULL DEFAULT 'NONE',
+    "matchedBillId" TEXT,
+    "matchConfidence" DOUBLE PRECISION,
+    "matchReason" TEXT,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "LedgerEntry_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -547,6 +622,30 @@ CREATE INDEX "ActionRequest_connectionId_executedAt_idx" ON "ActionRequest"("con
 -- CreateIndex
 CREATE INDEX "TriageFeedback_userId_createdAt_idx" ON "TriageFeedback"("userId", "createdAt");
 
+-- CreateIndex
+CREATE INDEX "FinancialAccount_userId_archived_idx" ON "FinancialAccount"("userId", "archived");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FinancialAccount_userId_bankId_accountId_key" ON "FinancialAccount"("userId", "bankId", "accountId");
+
+-- CreateIndex
+CREATE INDEX "StatementImport_userId_importedAt_idx" ON "StatementImport"("userId", "importedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "StatementImport_userId_fileHash_key" ON "StatementImport"("userId", "fileHash");
+
+-- CreateIndex
+CREATE INDEX "LedgerEntry_userId_postedAt_idx" ON "LedgerEntry"("userId", "postedAt");
+
+-- CreateIndex
+CREATE INDEX "LedgerEntry_userId_matchStatus_idx" ON "LedgerEntry"("userId", "matchStatus");
+
+-- CreateIndex
+CREATE INDEX "LedgerEntry_accountId_postedAt_idx" ON "LedgerEntry"("accountId", "postedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LedgerEntry_accountId_fingerprint_key" ON "LedgerEntry"("accountId", "fingerprint");
+
 -- AddForeignKey
 ALTER TABLE "Connection" ADD CONSTRAINT "Connection_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -624,4 +723,22 @@ ALTER TABLE "TriageFeedback" ADD CONSTRAINT "TriageFeedback_itemTriageId_fkey" F
 
 -- AddForeignKey
 ALTER TABLE "TriageFeedback" ADD CONSTRAINT "TriageFeedback_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FinancialAccount" ADD CONSTRAINT "FinancialAccount_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StatementImport" ADD CONSTRAINT "StatementImport_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StatementImport" ADD CONSTRAINT "StatementImport_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "FinancialAccount"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "FinancialAccount"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_statementId_fkey" FOREIGN KEY ("statementId") REFERENCES "StatementImport"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 

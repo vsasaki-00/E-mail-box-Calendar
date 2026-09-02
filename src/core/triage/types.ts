@@ -85,3 +85,12 @@ export const DEFAULT_MAILBOX_CONTEXT: Omit<MailboxContext, 'accountEmail'> = {
   vipSenders: [],
   urgentKeywords: [],
 };
+
+/**
+ * Motivo gravado em `ItemTriage.reason` quando voce CONFIRMA a classificacao.
+ *
+ * Vive aqui, e nao em persist.ts, porque a tela (componente cliente) precisa
+ * dele para reconhecer a confirmacao — e persist.ts importa o SDK do
+ * modelo, que nao pode entrar num bundle de navegador.
+ */
+export const REASON_CONFIRMED = 'Confirmado por você';

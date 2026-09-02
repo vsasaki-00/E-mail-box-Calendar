@@ -2,6 +2,7 @@ import type { Connection } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { createAnthropicTriageModel, runTriage, PROMPT_VERSION, type TriageModel } from './classifier';
 import type { MailboxContext, TriageInput, TriageResult } from './types';
+import { REASON_CONFIRMED } from './types';
 
 /**
  * Liga a triagem ao banco. Ver docs/07-agente-de-triagem.md
@@ -194,6 +195,42 @@ export async function triageConnection(
 }
 
 /** Registra a correcao do usuario e marca a triagem como decidida por ele. */
+/**
+ * Voce leu e concordou.
+ *
+ * Gera feedback com from == to. Sem isto o sistema so aprende com o erro:
+ * da para medir quantas vezes errou, nunca quantas acertou — e "precisao"
+ * fica impossivel de calcular. A linha ganha source USER e confianca 1,
+ * como na correcao: confirmado tambem nao deve ser reclassificado.
+ */
+export async function confirmUserTriage(params: {
+  unifiedItemId: string;
+  userId: string;
+}): Promise<void> {
+  const atual = await prisma.itemTriage.findUnique({
+    where: { unifiedItemId: params.unifiedItemId },
+  });
+  if (!atual) throw new Error('Item sem triagem para confirmar');
+
+  await prisma.$transaction([
+    prisma.itemTriage.update({
+      where: { id: atual.id },
+      data: { confidence: 1, source: 'USER', reason: REASON_CONFIRMED },
+    }),
+    prisma.triageFeedback.create({
+      data: {
+        itemTriageId: atual.id,
+        userId: params.userId,
+        fromCategory: atual.category,
+        toCategory: atual.category,
+        fromPriority: atual.priority,
+        toPriority: atual.priority,
+        note: REASON_CONFIRMED,
+      },
+    }),
+  ]);
+}
+
 export async function applyUserCorrection(params: {
   unifiedItemId: string;
   userId: string;

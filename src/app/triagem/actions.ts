@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { TriageCategory, TriagePriority } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { applyUserCorrection } from '@/core/triage/persist';
+import { applyUserCorrection, confirmUserTriage } from '@/core/triage/persist';
 
 /**
  * Correcao da triagem pelo usuario. Ver docs/07-agente-de-triagem.md
@@ -186,4 +186,26 @@ export async function zerarTriagensAutomaticas(): Promise<ZerarResultado> {
   }
 
   return { ok: true, apagadas, preservadas };
+}
+
+/**
+ * "Confirmo": voce leu e a classificacao esta certa.
+ *
+ * E o outro lado do "discordo". Sem o sinal positivo, a calibragem so
+ * enxerga erro — nunca acerto — e precisao vira um numero que ninguem
+ * consegue calcular.
+ */
+export async function confirmarTriagem(unifiedItemId: string): Promise<CorrigirResultado> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+
+  try {
+    await confirmUserTriage({ unifiedItemId, userId: usuario.id });
+  } catch (erro) {
+    return { ok: false, erro: erro instanceof Error ? erro.message : String(erro) };
+  }
+
+  revalidatePath('/triagem');
+  revalidatePath('/');
+  return { ok: true };
 }

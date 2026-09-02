@@ -152,6 +152,11 @@ export default async function PaginaFinanceiro({
             Contas a pagar detectadas nos seus e-mails, somando todas as caixas.
           </p>
         </div>
+        <div>
+          <a href="/financeiro/extrato" className="sub">
+            extrato bancário →
+          </a>
+        </div>
       </header>
 
       <div className="aviso" style={{ marginBottom: 16 }}>

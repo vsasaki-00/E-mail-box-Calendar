@@ -253,10 +253,16 @@ Princípios inegociáveis desta fase:
 
 ---
 
-## Fase 7 — Módulo financeiro completo 📌 (pedido registrado, não iniciado)
+## Fase 7 — Módulo financeiro completo 🔶 (7B parte 1 entregue)
 
-**Registrado em 31/08/2026, a pedido do dono. Nada disto foi construído.**
-Está aqui para não se perder e para ser retomado sem reexplicação.
+**Registrado em 31/08/2026, a pedido do dono. Iniciado em 02/09/2026.**
+Detalhes do que existe e das decisões: [`10-financeiro.md`](10-financeiro.md).
+
+Entregue: modelo de dados (contas, importações, lançamentos com campos de
+conciliação), leitores de OFX e CSV, importação com deduplicação em duas
+camadas, tela `/financeiro/extrato`, SQL delta para produção
+(`prisma/fase7-extrato.sql`). Pendente: conciliação (7B parte 2),
+categorias/regras, análise (7C), WhatsApp (7A).
 
 Hoje `/financeiro` é um **detector de cobranças que chegam por e-mail**: lê
 boleto e PIX do que caiu na caixa e mostra o que vence. Isso responde "o que
