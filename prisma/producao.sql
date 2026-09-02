@@ -11,7 +11,7 @@
 --
 -- Validado assim: aplicado num Postgres 16 limpo e, em seguida,
 -- `prisma db push` contra o mesmo banco respondeu "The database is already
--- in sync with the Prisma schema" — 22 tabelas (fase 7B incluida).
+-- in sync with the Prisma schema" — 23 tabelas (fase 7B incluida).
 --
 -- Se o schema.prisma mudar depois, NAO edite este arquivo: regenere com o
 -- comando acima, ou rode `pnpm db:push` que aplica so a diferenca.
@@ -506,6 +506,7 @@ CREATE TABLE "LedgerEntry" (
     "fingerprint" TEXT NOT NULL,
     "business" TEXT,
     "category" TEXT,
+    "categorySource" TEXT,
     "matchStatus" "MatchStatus" NOT NULL DEFAULT 'NONE',
     "matchedBillId" TEXT,
     "matchConfidence" DOUBLE PRECISION,
@@ -515,6 +516,20 @@ CREATE TABLE "LedgerEntry" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "LedgerEntry_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CategoryRule" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "pattern" TEXT NOT NULL,
+    "category" TEXT,
+    "business" TEXT,
+    "hits" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "CategoryRule_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -646,6 +661,12 @@ CREATE INDEX "LedgerEntry_accountId_postedAt_idx" ON "LedgerEntry"("accountId", 
 -- CreateIndex
 CREATE UNIQUE INDEX "LedgerEntry_accountId_fingerprint_key" ON "LedgerEntry"("accountId", "fingerprint");
 
+-- CreateIndex
+CREATE INDEX "CategoryRule_userId_idx" ON "CategoryRule"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "CategoryRule_userId_pattern_key" ON "CategoryRule"("userId", "pattern");
+
 -- AddForeignKey
 ALTER TABLE "Connection" ADD CONSTRAINT "Connection_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -741,4 +762,7 @@ ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_accountId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_statementId_fkey" FOREIGN KEY ("statementId") REFERENCES "StatementImport"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CategoryRule" ADD CONSTRAINT "CategoryRule_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

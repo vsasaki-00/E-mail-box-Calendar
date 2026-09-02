@@ -266,6 +266,14 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
     // A conciliacao tem sua propria tela e botao; a importacao ja valeu.
   }
 
+  // Categorias: regras suas e palpites, so no que ainda nao tem.
+  try {
+    const { aplicarCategorias } = await import('../categorizar');
+    await aplicarCategorias(params.userId);
+  } catch {
+    // Tem botao proprio na tela; a importacao ja valeu.
+  }
+
   const avisos = [...extrato.avisos];
   if (sugeridos > 0) {
     avisos.push(`${sugeridos} par(es) com cobranças de e-mail sugerido(s) — confira em Conciliação.`);

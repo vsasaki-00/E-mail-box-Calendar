@@ -7,6 +7,8 @@ import { ImportarExtrato } from './importar-form';
 import { EditarConta } from './conta-form';
 import { nomeDaInstituicao } from '@/core/finance/bancos';
 import { ATALHOS, resolverPeriodo } from '@/core/finance/extrato/periodo';
+import { CATEGORIAS } from '@/core/finance/categorias';
+import { BotaoApagarRegra, BotaoCategorizar, CategoriaInline } from './categoria-form';
 
 /**
  * Extrato: contas, importacoes e lancamentos. Ver docs/10-financeiro.md
@@ -58,7 +60,7 @@ export default async function PaginaExtrato({
       : {}),
   };
 
-  const [contas, importacoes, lancamentos, totalNoPeriodo, somas] = await Promise.all([
+  const [contas, importacoes, lancamentos, totalNoPeriodo, somas, regras] = await Promise.all([
     prisma.financialAccount.findMany({
       where: { userId: usuario.id, archived: false },
       orderBy: { createdAt: 'asc' },
@@ -83,6 +85,7 @@ export default async function PaginaExtrato({
       prisma.ledgerEntry.aggregate({ where: { ...filtro, amountCents: { gt: 0 } }, _sum: { amountCents: true } }),
       prisma.ledgerEntry.aggregate({ where: { ...filtro, amountCents: { lt: 0 } }, _sum: { amountCents: true } }),
     ]),
+    prisma.categoryRule.findMany({ where: { userId: usuario.id }, orderBy: { createdAt: 'desc' } }),
   ]);
   const entradas = somas[0]._sum.amountCents ?? 0;
   const saidas = somas[1]._sum.amountCents ?? 0;
@@ -250,6 +253,10 @@ export default async function PaginaExtrato({
           )}
         </div>
 
+        <div style={{ marginBottom: 10 }}>
+          <BotaoCategorizar />
+        </div>
+
         {totalNoPeriodo > lancamentos.length && (
           <p className="sub" style={{ fontSize: 12, marginBottom: 8 }}>
             Mostrando {lancamentos.length} de {totalNoPeriodo} — os totais acima somam todos. Estreite o período para ver o resto.
@@ -270,6 +277,7 @@ export default async function PaginaExtrato({
                   <th style={{ padding: '4px 8px 4px 0' }}>data</th>
                   <th style={{ padding: '4px 8px' }}>descrição</th>
                   <th style={{ padding: '4px 8px' }}>conta</th>
+                  <th style={{ padding: '4px 8px' }}>categoria</th>
                   <th style={{ padding: '4px 0 4px 8px', textAlign: 'right' }}>valor</th>
                 </tr>
               </thead>
@@ -279,10 +287,19 @@ export default async function PaginaExtrato({
                     <td style={{ padding: '6px 8px 6px 0', whiteSpace: 'nowrap' }}>{dia(l.postedAt)}</td>
                     <td style={{ padding: '6px 8px' }}>
                       {l.description}
-                      {l.business && <span className="sub" style={{ fontSize: 11 }}> · {l.business}</span>}
                     </td>
                     <td style={{ padding: '6px 8px' }} className="sub">
                       {l.account.label}
+                    </td>
+                    <td style={{ padding: '6px 8px' }}>
+                      <CategoriaInline
+                        lancamentoId={l.id}
+                        category={l.category}
+                        categorySource={l.categorySource}
+                        business={l.business}
+                        categorias={CATEGORIAS}
+                        negocios={BUSINESS_CONTEXTS}
+                      />
                     </td>
                     <td
                       style={{
@@ -299,6 +316,30 @@ export default async function PaginaExtrato({
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="card" style={{ marginTop: 16 }}>
+        <h2>Regras de categoria</h2>
+        <p className="sub" style={{ fontSize: 12, marginBottom: 8 }}>
+          Nascem quando você categoriza um lançamento e marca <strong>sempre</strong>. Casam por palavras
+          da descrição; a próxima importação já vem classificada. Apague a que não fizer sentido.
+        </p>
+        {regras.length === 0 ? (
+          <p className="vazio">Nenhuma regra ainda.</p>
+        ) : (
+          regras.map((r) => (
+            <div key={r.id} className="linha" style={{ alignItems: 'center' }}>
+              <span className="titulo-item">
+                <code>{r.pattern}</code>
+                <br />
+                <span className="sub">
+                  {[r.category, r.business].filter(Boolean).join(' · ') || '(sem efeito)'} · {r.hits} acerto(s)
+                </span>
+              </span>
+              <BotaoApagarRegra regraId={r.id} />
+            </div>
+          ))
         )}
       </section>
     </main>

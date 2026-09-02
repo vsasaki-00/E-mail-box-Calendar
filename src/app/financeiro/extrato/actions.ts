@@ -62,3 +62,58 @@ export async function atualizarConta(
   revalidatePath('/financeiro/extrato');
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Categorias
+// ---------------------------------------------------------------------------
+
+import { aplicarCategorias, definirCategoria } from '@/core/finance/categorizar';
+
+export interface ResultadoCategoria {
+  ok: boolean;
+  erro?: string;
+  texto?: string;
+}
+
+export async function categorizarLancamento(
+  lancamentoId: string,
+  dados: { category: string; business: string; sempre: boolean },
+): Promise<ResultadoCategoria> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+  const r = await definirCategoria({
+    userId: usuario.id,
+    lancamentoId,
+    category: dados.category,
+    business: dados.business,
+    sempre: dados.sempre,
+  });
+  if (!r.ok) return { ok: false, erro: r.erro };
+  revalidatePath('/financeiro/extrato');
+  return {
+    ok: true,
+    texto: r.regra
+      ? `Regra "${r.regra}" criada — ${r.alcancados} lançamento(s) parecido(s) atualizado(s).`
+      : 'Salvo.',
+  };
+}
+
+export async function categorizarTudo(): Promise<ResultadoCategoria> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+  try {
+    const r = await aplicarCategorias(usuario.id);
+    revalidatePath('/financeiro/extrato');
+    return { ok: true, texto: `${r.avaliados} avaliados: ${r.porRegra} por regra sua, ${r.porHeuristica} por palpite.` };
+  } catch (erro) {
+    return { ok: false, erro: erro instanceof Error ? erro.message : String(erro) };
+  }
+}
+
+export async function apagarRegra(regraId: string): Promise<ResultadoCategoria> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+  await prisma.categoryRule.deleteMany({ where: { id: regraId, userId: usuario.id } });
+  revalidatePath('/financeiro/extrato');
+  return { ok: true };
+}

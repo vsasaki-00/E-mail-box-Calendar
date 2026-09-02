@@ -99,6 +99,7 @@ model User {
   financialAccounts FinancialAccount[]
   statementImports  StatementImport[]
   ledgerEntries     LedgerEntry[]
+  categoryRules  CategoryRule[]
 }
 
 /// Uma conta conectada: uma caixa de e-mail e/ou um conjunto de calendarios
@@ -991,6 +992,11 @@ model LedgerEntry {
 
   business String?
   category String?
+  /// Quem deu a categoria: USER (voce, neste lancamento), RULE (regra sua)
+  /// ou HEURISTIC (palpite embutido). Regra sobrescreve heuristica; nada
+  /// sobrescreve USER. Sem isto, o palpite e a sua correcao seriam
+  /// indistinguiveis, e a regra nova nao saberia o que pode trocar.
+  categorySource String?
 
   /// Conciliacao com uma cobranca detectada no e-mail.
   matchStatus     MatchStatus @default(NONE)
@@ -1013,4 +1019,31 @@ model LedgerEntry {
   @@index([userId, postedAt])
   @@index([userId, matchStatus])
   @@index([accountId, postedAt])
+}
+
+/// Regra de categoria/negocio aprendida das suas correcoes (fase 7B).
+///
+/// `pattern` sao palavras da descricao NORMALIZADA; casa quando todas
+/// aparecem. Nasce quando voce categoriza um lancamento e marca "sempre":
+/// e o que faz a proxima importacao ja vir classificada. Nunca sobrescreve
+/// o que voce definiu a mao num lancamento especifico.
+model CategoryRule {
+  id     String @id @default(cuid())
+  userId String
+
+  pattern  String
+  category String?
+  business String?
+
+  /// Quantos lancamentos ja recebeu. Regra com zero acertos e candidata a
+  /// ser apagada; regra com muitos, a ser conferida.
+  hits Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pattern])
+  @@index([userId])
 }

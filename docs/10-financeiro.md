@@ -171,6 +171,36 @@ A busca roda sozinha ao fim de cada importação (falhar ali vira aviso, não
 desfaz a importação) e pelo botão **Procurar pares**. Janela: saídas dos
 últimos 120 dias.
 
+## Categorias e regras ✅
+
+Lista fixa de 17 categorias (`categorias.ts`), em português, pensada para
+seis negócios e a vida pessoal juntos. Fixa porque categoria entra em soma
+e comparação mês a mês.
+
+Três origens para a categoria de um lançamento, gravadas em
+`categorySource`, com precedência clara:
+
+| origem | quem | sobrescreve |
+| --- | --- | --- |
+| `USER` | você, naquele lançamento | ninguém |
+| `RULE` | uma regra sua | heurística |
+| `HEURISTIC` | palpite embutido (Netflix → Assinaturas, DARF → Impostos…) | nada; só preenche vazio |
+
+Na tela, palpite aparece com borda tracejada: é para conferir. Sem a coluna
+de origem, o palpite e a sua correção seriam indistinguíveis, e uma regra
+nova não saberia o que pode trocar.
+
+**Regras** (`CategoryRule`) nascem da sua correção com **"sempre"**: a chave
+é extraída da descrição normalizada tirando o genérico ("porto seguro
+saude", não "efetuado porto seguro seguro saude sa"), aparece no resultado
+para você julgar, e casa por **palavras** (todas presentes), não por
+substring. Uma regra pode dar categoria, negócio, ou os dois. Negócio por
+regra só mexe em lançamento que ainda está no padrão da conta — negócio
+trocado a mão é seu. Cada regra conta acertos; a lista fica no fim do
+extrato, com apagar.
+
+Rodam ao fim de cada importação e pelo botão **Categorizar**.
+
 ## Segurança
 
 Extrato bancário é mais sensível que e-mail. Decisões:
