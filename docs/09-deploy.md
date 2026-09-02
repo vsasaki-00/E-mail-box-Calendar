@@ -232,9 +232,23 @@ não parar de vez se o workflow for desligado.
 O workflow **chama em laço**, e é isso que faz diferença: cada requisição
 processa o que couber em ~25s e a resposta traz `sync.pendentes`, o número de
 recursos que continuam vencidos. Enquanto for maior que zero, ele chama de
-novo (até 30 voltas). Uma caixa em dia zera na primeira; uma recém-conectada
-leva dezenas. As voltas de carga usam `?automacao=0` para não gastar chamada
-de modelo — a triagem roda uma vez só, no fim.
+novo. As voltas de carga usam `?automacao=0` para não gastar chamada de
+modelo — a triagem roda uma vez só, no fim.
+
+**Progresso parcial é o funcionamento normal, não falha.** Uma caixa em dia
+zera na primeira volta. Uma carga inicial de várias caixas não zera nunca
+dentro de uma execução: são milhares de mensagens, uma página por vez. Por
+isso o laço tem relógio próprio (15 minutos) e sai limpo ao acabar o tempo,
+dizendo quanto sobrou; o horário seguinte continua de onde parou, porque o
+cursor de cada recurso já está gravado. A primeira versão só tinha teto de
+voltas e deixava o runner estourar o `timeout-minutes` — job vermelho, passo
+de triagem pulado, e nada disso descrevia a realidade. O `timeout-minutes`
+segue lá, mas como rede de segurança para um `curl` travado, não como o
+corte de verdade.
+
+Se quiser acelerar a carga inicial, o botão **Sincronizar todas as caixas**
+na tela de Conexões faz o mesmo laço pelo navegador, sem limite de tempo —
+ou `pnpm worker` no seu Mac, que escreve no mesmo banco.
 
 **Dois relógios na rota, e os dois são necessários.** O orçamento de 25s
 impede *pegar* recurso novo; o prazo de 45s responde de qualquer jeito. Só o

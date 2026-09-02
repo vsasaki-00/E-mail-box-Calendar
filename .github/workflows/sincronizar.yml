@@ -27,6 +27,9 @@ concurrency:
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
+    # Folga sobre o limite do laço (15 min) mais a triagem. O corte de
+    # verdade é o do laço, que sai limpo; este aqui é só rede de segurança
+    # para um curl travado.
     timeout-minutes: 25
 
     steps:
@@ -44,9 +47,20 @@ jobs:
           fi
 
           # Cada chamada processa o que couber em ~25s e devolve quantos
-          # recursos continuam vencidos. Uma caixa recém-conectada leva
-          # dezenas de voltas para zerar; uma já em dia zera na primeira.
-          MAX_VOLTAS=30
+          # recursos continuam vencidos. Uma caixa já em dia zera na primeira
+          # volta; uma carga inicial de várias caixas não zera NUNCA dentro de
+          # uma execução — são milhares de mensagens, uma página por vez.
+          #
+          # Por isso o laço tem relógio próprio, e não só um teto de voltas:
+          # ao acabar o tempo ele sai LIMPO, dizendo quanto sobrou, e o
+          # próximo horário continua de onde parou. A primeira versão deixava
+          # o runner estourar o `timeout-minutes` — job vermelho, passo de
+          # triagem pulado, e nada disso descrevia a realidade, que era
+          # simplesmente "a carga inicial é grande". Progresso parcial é o
+          # funcionamento normal aqui, não uma falha.
+          LIMITE_SEGUNDOS=$((15 * 60))
+          COMECOU=$(date +%s)
+          MAX_VOLTAS=60
 
           # Uma volta que falha NÃO derruba o job. O sync é retomável por
           # desenho: cada página foi gravada com seu cursor, então a volta
@@ -60,7 +74,16 @@ jobs:
           MAX_FALHAS_SEGUIDAS=3
           falhas_seguidas=0
 
+          pendentes=0
+
           for volta in $(seq 1 "$MAX_VOLTAS"); do
+            decorrido=$(( $(date +%s) - COMECOU ))
+            if [ "$decorrido" -ge "$LIMITE_SEGUNDOS" ]; then
+              echo "Tempo do laço esgotado em $volta volta(s); $pendentes recurso(s) ainda vencido(s)."
+              echo "O progresso está gravado — o próximo horário continua daqui."
+              break
+            fi
+
             # `automacao=0`: as voltas de carga não gastam chamada de modelo.
             # A triagem roda uma vez só, no fim.
             if ! resposta=$(curl --fail-with-body --silent --show-error \
@@ -96,6 +119,11 @@ jobs:
               break
             fi
           done
+
+          # Sair com trabalho pendente é sucesso: o job não mente sobre o que
+          # aconteceu, e o horário seguinte retoma.
+          echo "::notice::Sincronização encerrada com $pendentes recurso(s) pendente(s)."
+
 
       - name: Triagem e cobranças
         env:
