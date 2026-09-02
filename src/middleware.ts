@@ -22,6 +22,10 @@ const PUBLICO = [
   '/api/auth/microsoft/callback',
   // Cron da Vercel: autentica pelo header, não por cookie.
   '/api/cron',
+  // Webhook do WhatsApp: chega da Meta, sem cookie. Protegido pela
+  // assinatura HMAC do corpo (App Secret) e por allowlist de número —
+  // mesma lógica dos callbacks acima, que também não têm sessão.
+  '/api/whatsapp/webhook',
 ];
 
 export async function middleware(request: NextRequest) {

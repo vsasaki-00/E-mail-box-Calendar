@@ -89,6 +89,12 @@ CREATE TYPE "LedgerSource" AS ENUM ('OFX', 'CSV', 'PDF', 'MANUAL');
 -- CreateEnum
 CREATE TYPE "MatchStatus" AS ENUM ('NONE', 'SUGGESTED', 'CONFIRMED', 'REJECTED');
 
+-- CreateEnum
+CREATE TYPE "InboxChannel" AS ENUM ('WHATSAPP');
+
+-- CreateEnum
+CREATE TYPE "InboxStatus" AS ENUM ('PENDING', 'PROPOSED', 'ACCEPTED', 'REJECTED', 'FAILED');
+
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
@@ -532,6 +538,37 @@ CREATE TABLE "CategoryRule" (
     CONSTRAINT "CategoryRule_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "InboxMessage" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "channel" "InboxChannel" NOT NULL DEFAULT 'WHATSAPP',
+    "externalId" TEXT NOT NULL,
+    "fromNumber" TEXT NOT NULL,
+    "fromName" TEXT,
+    "kind" TEXT NOT NULL DEFAULT 'TEXT',
+    "text" TEXT,
+    "mediaId" TEXT,
+    "mediaMimeType" TEXT,
+    "mediaFileName" TEXT,
+    "receivedAt" TIMESTAMP(3) NOT NULL,
+    "status" "InboxStatus" NOT NULL DEFAULT 'PENDING',
+    "proposedAmountCents" INTEGER,
+    "proposedDirection" TEXT,
+    "proposedDescription" TEXT,
+    "proposedDate" TIMESTAMP(3),
+    "proposedCategory" TEXT,
+    "proposedBusiness" TEXT,
+    "confidence" DOUBLE PRECISION,
+    "reason" TEXT,
+    "ledgerEntryId" TEXT,
+    "errorMessage" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "InboxMessage_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -667,6 +704,12 @@ CREATE INDEX "CategoryRule_userId_idx" ON "CategoryRule"("userId");
 -- CreateIndex
 CREATE UNIQUE INDEX "CategoryRule_userId_pattern_key" ON "CategoryRule"("userId", "pattern");
 
+-- CreateIndex
+CREATE INDEX "InboxMessage_userId_status_receivedAt_idx" ON "InboxMessage"("userId", "status", "receivedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "InboxMessage_channel_externalId_key" ON "InboxMessage"("channel", "externalId");
+
 -- AddForeignKey
 ALTER TABLE "Connection" ADD CONSTRAINT "Connection_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -765,4 +808,7 @@ ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_statementId_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "CategoryRule" ADD CONSTRAINT "CategoryRule_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "InboxMessage" ADD CONSTRAINT "InboxMessage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

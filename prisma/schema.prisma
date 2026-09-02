@@ -100,6 +100,7 @@ model User {
   statementImports  StatementImport[]
   ledgerEntries     LedgerEntry[]
   categoryRules  CategoryRule[]
+  inboxMessages  InboxMessage[]
 }
 
 /// Uma conta conectada: uma caixa de e-mail e/ou um conjunto de calendarios
@@ -1046,4 +1047,80 @@ model CategoryRule {
 
   @@unique([userId, pattern])
   @@index([userId])
+}
+
+/// De onde veio uma mensagem que entrou por fora do e-mail (fase 7A).
+enum InboxChannel {
+  WHATSAPP
+}
+
+/// O que o app fez com ela. PROPOSED nunca vira ACCEPTED sozinho.
+enum InboxStatus {
+  /// Chegou, ainda nao interpretada.
+  PENDING
+  /// Interpretada; ha uma proposta esperando voce.
+  PROPOSED
+  /// Voce confirmou: virou lancamento.
+  ACCEPTED
+  /// Voce disse que nao e lancamento.
+  REJECTED
+  /// Nao deu para interpretar (midia que nao sei ler, texto sem valor).
+  FAILED
+}
+
+/// Uma mensagem recebida por um canal externo — hoje so WhatsApp.
+///
+/// Guarda o que chegou, nao o que aconteceu: o lancamento resultante e
+/// entidade propria (LedgerEntry) e so nasce quando VOCE confirma. Ver
+/// docs/11-whatsapp.md
+model InboxMessage {
+  id     String @id @default(cuid())
+  userId String
+
+  channel InboxChannel @default(WHATSAPP)
+  /// Id da mensagem no provedor. Webhook REENTREGA quando nao recebe 200 —
+  /// sem esta unique, cada reentrega viraria uma proposta duplicada.
+  externalId String
+
+  /// Numero do remetente, so digitos (E.164 sem "+").
+  fromNumber String
+  fromName   String?
+
+  /// TEXT, IMAGE, DOCUMENT, AUDIO... como o provedor chama.
+  kind String  @default("TEXT")
+  text String?
+
+  /// Midia fica POR REFERENCIA: o binario continua no provedor e e buscado
+  /// sob demanda. Guardar comprovante do dono no nosso banco e assumir uma
+  /// responsabilidade que este app nao precisa ter.
+  mediaId       String?
+  mediaMimeType String?
+  mediaFileName String?
+
+  receivedAt DateTime
+  status     InboxStatus @default(PENDING)
+
+  /// A proposta, em centavos e SEM sinal — a direcao esta em `direction`.
+  proposedAmountCents Int?
+  proposedDirection   String?
+  proposedDescription String?
+  proposedDate        DateTime?
+  proposedCategory    String?
+  proposedBusiness    String?
+  /// 0..1, e o porque em texto — a tela mostra os dois.
+  confidence Float?
+  reason     String?
+
+  /// O lancamento criado quando voce confirmou.
+  ledgerEntryId String?
+  /// Motivo de FAILED, em linguagem de gente.
+  errorMessage  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, externalId])
+  @@index([userId, status, receivedAt])
 }

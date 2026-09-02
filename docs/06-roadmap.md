@@ -253,7 +253,7 @@ Princípios inegociáveis desta fase:
 
 ---
 
-## Fase 7 — Módulo financeiro completo 🔶 (7B e 7C entregues; 7A pendente)
+## Fase 7 — Módulo financeiro completo ✅
 
 **Registrado em 31/08/2026, a pedido do dono. Iniciado em 02/09/2026.**
 Detalhes do que existe e das decisões: [`10-financeiro.md`](10-financeiro.md).
@@ -267,13 +267,17 @@ Entregue:
 - **7C** — `/financeiro/analise`: fluxo mês a mês, por negócio,
   previsibilidade da receita, recorrentes e **torneira vazando**.
 
-Pendente: **7A (WhatsApp)**, que depende de uma decisão de provedor com
-custos na mesa — a Cloud API da Meta exige conta business verificada e
-número dedicado. Enquanto isso, encaminhar para uma caixa conectada já
-aciona a extração existente, sem código novo.
+- **7A** — entrada por WhatsApp pela Cloud API da Meta: webhook com
+  assinatura HMAC e allowlist de número, interpretação da frase em
+  proposta, e tela `/financeiro/entrada` onde você confirma. Detalhes em
+  [`11-whatsapp.md`](11-whatsapp.md). **Não verificado contra a Meta real**
+  — depende de conta business verificada e número dedicado, que não existem
+  neste ambiente; o que foi testado é o webhook recebendo o formato de
+  payload documentado.
 
 SQL de produção, nesta ordem: `prisma/fase7-extrato.sql`,
-`prisma/fase7-pdf.sql`, `prisma/fase7-regras.sql`.
+`prisma/fase7-pdf.sql`, `prisma/fase7-regras.sql`,
+`prisma/fase7-whatsapp.sql`.
 
 Hoje `/financeiro` é um **detector de cobranças que chegam por e-mail**: lê
 boleto e PIX do que caiu na caixa e mostra o que vence. Isso responde "o que
