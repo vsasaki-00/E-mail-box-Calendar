@@ -95,6 +95,10 @@ model User {
   drafts         Draft[]
   actions        ActionRequest[]
   triageFeedback TriageFeedback[]
+
+  financialAccounts FinancialAccount[]
+  statementImports  StatementImport[]
+  ledgerEntries     LedgerEntry[]
 }
 
 /// Uma conta conectada: uma caixa de e-mail e/ou um conjunto de calendarios
@@ -827,4 +831,184 @@ model TriageFeedback {
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Fase 7B — Contas, lancamentos e extrato. Ver docs/10-financeiro.md
+// ---------------------------------------------------------------------------
+
+/// Que tipo de conta e. Muda o SINAL do que e bom: saldo negativo em conta
+/// corrente e problema; em cartao de credito e o normal (e a fatura).
+enum FinancialAccountKind {
+  CHECKING
+  SAVINGS
+  CREDIT_CARD
+  CASH
+  INVESTMENT
+  OTHER
+}
+
+/// De onde o lancamento veio. Mesma disciplina do BillSource: a tela precisa
+/// poder dizer "isto veio do extrato do banco" x "isto voce digitou".
+enum LedgerSource {
+  /// Arquivo OFX exportado do banco. Traz FITID, que e identidade estavel.
+  OFX
+  /// CSV do banco. Sem identidade propria: deduplicado por impressao digital.
+  CSV
+  /// Digitado por voce.
+  MANUAL
+}
+
+/// Estado do casamento entre um lancamento do extrato e uma cobranca
+/// detectada no e-mail.
+///
+/// SUGGESTED nunca vira CONFIRMED sozinho. Conciliacao automatica e
+/// silenciosa e como o dinheiro some de vista: o par errado fica parecendo
+/// certo para sempre.
+enum MatchStatus {
+  /// Ninguem propos nada ainda.
+  NONE
+  /// O sistema propos. Aparece como proposta, com o motivo.
+  SUGGESTED
+  /// Voce confirmou.
+  CONFIRMED
+  /// Voce disse que nao e. Nao volta a ser proposto.
+  REJECTED
+}
+
+/// Uma conta de verdade: banco, cartao, dinheiro.
+///
+/// Existe porque "quanto eu tenho" e "quanto entra e sai" sao perguntas que
+/// o painel de cobrancas detectadas no e-mail nao responde nem por acidente
+/// — ele so ve o que chegou por e-mail.
+model FinancialAccount {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Como voce chama ("Itau PJ Unitedcom", "Nubank pessoal").
+  label       String
+  institution String?
+  kind        FinancialAccountKind @default(CHECKING)
+  currency    String               @default("BRL")
+
+  /// A qual negocio esta conta pertence. Um dos BUSINESS_CONTEXTS —
+  /// string e nao enum porque a lista vive em codigo (businesses.ts) e ja e
+  /// compartilhada com a triagem.
+  business String?
+
+  /// Identificadores que o banco usa no OFX (<BANKID>, <ACCTID>). Sao eles
+  /// que permitem um arquivo novo cair na conta certa sem voce escolher.
+  bankId    String?
+  accountId String?
+
+  /// Ultimo saldo informado pelo banco, em centavos. Assinado.
+  balanceCents Int?
+  balanceAt    DateTime?
+
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries    LedgerEntry[]
+  statements StatementImport[]
+
+  /// Um par (banco, conta) e unico por usuario: e o que impede o mesmo
+  /// extrato importado duas vezes virar duas contas.
+  @@unique([userId, bankId, accountId])
+  @@index([userId, archived])
+}
+
+/// Um arquivo de extrato importado.
+///
+/// Guardado como entidade, e nao so como efeito colateral, por dois motivos:
+/// desfazer uma importacao inteira quando ela vem errada, e responder "de
+/// onde saiu este lancamento?" meses depois.
+model StatementImport {
+  id        String @id @default(cuid())
+  userId    String
+  accountId String
+
+  source   LedgerSource
+  fileName String?
+  /// SHA-256 do arquivo. Reimportar o MESMO arquivo nao cria nada novo — e
+  /// isso acontece o tempo todo, porque ninguem lembra o que ja subiu.
+  fileHash String
+
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  /// Quantos vieram no arquivo, quantos entraram, quantos ja existiam.
+  entriesFound     Int @default(0)
+  entriesCreated   Int @default(0)
+  entriesDuplicate Int @default(0)
+
+  /// Avisos que voce PRECISA ver (linhas ilegiveis, datas fora do periodo).
+  warnings Json @default("[]")
+
+  importedAt DateTime @default(now())
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  entries LedgerEntry[]
+
+  @@unique([userId, fileHash])
+  @@index([userId, importedAt])
+}
+
+/// Um lancamento: uma linha do extrato.
+///
+/// `amountCents` e ASSINADO — negativo e saida. Guardar sinal em vez de um
+/// campo `tipo` evita a classe inteira de bug em que a soma sai errada
+/// porque alguem esqueceu de olhar o tipo antes de somar.
+model LedgerEntry {
+  id          String  @id @default(cuid())
+  userId      String
+  accountId   String
+  statementId String?
+
+  /// Data do lancamento (nao a de competencia; essa vem depois, se vier).
+  postedAt    DateTime
+  amountCents Int
+  currency    String   @default("BRL")
+
+  /// Descricao como o banco mandou, sem tratamento. E o que vale para
+  /// auditoria: a normalizada pode mudar quando o normalizador melhorar.
+  description String
+  /// Minusculas, sem acento e sem o lixo que todo banco acrescenta. E sobre
+  /// ela que a conciliacao e as regras trabalham.
+  normalized  String
+
+  source      LedgerSource
+  /// <FITID> do OFX: identidade dada pelo banco, estavel entre exportacoes.
+  fitId       String?
+  /// Impressao digital para o caso sem FITID (CSV): conta+data+valor+
+  /// descricao. Nao e perfeita — duas compras iguais no mesmo dia colidem —
+  /// e por isso ela carrega um contador de ocorrencia.
+  fingerprint String
+
+  business String?
+  category String?
+
+  /// Conciliacao com uma cobranca detectada no e-mail.
+  matchStatus     MatchStatus @default(NONE)
+  matchedBillId   String?
+  matchConfidence Float?
+  /// Por que o sistema propos este par. Sem isto, confirmar e um ato de fe.
+  matchReason     String?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account   FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  statement StatementImport? @relation(fields: [statementId], references: [id], onDelete: SetNull)
+
+  /// A dedupe de verdade. Vale por CONTA, nao por usuario: o mesmo FITID
+  /// pode existir em bancos diferentes.
+  @@unique([accountId, fingerprint])
+  @@index([userId, postedAt])
+  @@index([userId, matchStatus])
+  @@index([accountId, postedAt])
 }
