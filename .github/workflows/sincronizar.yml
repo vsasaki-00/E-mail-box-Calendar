@@ -43,22 +43,43 @@ jobs:
             exit 1
           fi
 
-          # Cada chamada processa o que couber em ~40s e devolve quantos
+          # Cada chamada processa o que couber em ~25s e devolve quantos
           # recursos continuam vencidos. Uma caixa recém-conectada leva
           # dezenas de voltas para zerar; uma já em dia zera na primeira.
           MAX_VOLTAS=30
 
+          # Uma volta que falha NÃO derruba o job. O sync é retomável por
+          # desenho: cada página foi gravada com seu cursor, então a volta
+          # seguinte retoma de onde parou. Desistir na primeira falha faria
+          # um 504 isolado — ou um deploy acontecendo no meio — jogar fora as
+          # 29 voltas restantes. O que não dá para tolerar é falha atrás de
+          # falha: aí não é soluço, é a rota fora do ar.
+          #
+          # Sem `--retry`: o laço já é a repetição, e o retry do curl fazia
+          # três chamadas de 60s antes de qualquer diagnóstico aparecer.
+          MAX_FALHAS_SEGUIDAS=3
+          falhas_seguidas=0
+
           for volta in $(seq 1 "$MAX_VOLTAS"); do
             # `automacao=0`: as voltas de carga não gastam chamada de modelo.
             # A triagem roda uma vez só, no fim.
-            resposta=$(curl --fail-with-body --silent --show-error \
-              --max-time 120 --retry 2 --retry-delay 10 \
+            if ! resposta=$(curl --fail-with-body --silent --show-error \
+              --max-time 90 \
               -H "x-cron-secret: $CRON_SECRET" \
-              "$URL/api/cron/sync?automacao=0") || {
-                echo "::error::A chamada de sincronização falhou na volta $volta"
-                echo "$resposta"
+              "$URL/api/cron/sync?automacao=0"); then
+              falhas_seguidas=$((falhas_seguidas + 1))
+              # Uma linha só: a página de erro da Vercel vem em HTML e
+              # despejá-la inteira esconde o que importa.
+              resumo=$(echo "$resposta" | tr -d '\r' | tr '\n' ' ' | cut -c1-300)
+              echo "::warning::volta $volta falhou ($falhas_seguidas seguida(s)): $resumo"
+              if [ "$falhas_seguidas" -ge "$MAX_FALHAS_SEGUIDAS" ]; then
+                echo "::error::$MAX_FALHAS_SEGUIDAS falhas seguidas — parando."
                 exit 1
-              }
+              fi
+              sleep 15
+              continue
+            fi
+            falhas_seguidas=0
 
             # Só contagens saem no log — nunca assunto, remetente ou corpo.
             echo "volta $volta: $(echo "$resposta" | jq -c '.sync')"
@@ -82,10 +103,15 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
-          resposta=$(curl --fail-with-body --silent --show-error \
-            --max-time 120 --retry 2 --retry-delay 10 \
+          if ! resposta=$(curl --fail-with-body --silent --show-error \
+            --max-time 90 \
             -H "x-cron-secret: $CRON_SECRET" \
-            "$URL/api/cron/sync")
+            "$URL/api/cron/sync"); then
+            # A carga já aconteceu no passo anterior; a triagem sozinha não
+            # vale um job vermelho.
+            echo "::warning::A chamada de triagem falhou: $(echo "$resposta" | tr '\n' ' ' | cut -c1-300)"
+            exit 0
+          fi
           echo "$resposta" | jq -c '{sync, automacao}'
 
           # A automação falhar não invalida o sync que já aconteceu: vira

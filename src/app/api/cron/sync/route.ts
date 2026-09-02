@@ -55,35 +55,67 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const inicio = Date.now();
 
-  // Sobra para a automacao, a serializacao e a margem da plataforma. O ciclo
-  // para de PEGAR recurso novo aos 40s; o que ja comecou termina depois
-  // disso, e e por isso que a folga precisa ser generosa.
-  const ORCAMENTO_SYNC_MS = 40_000;
+  // Dois relógios, e os dois precisam existir.
+  //
+  // O orçamento (25s) impede PEGAR recurso novo. Sozinho ele não basta: um
+  // recurso iniciado aos 24s ainda tem o tempo dele pela frente, e foi
+  // exatamente assim que o primeiro disparo automático estourou os 60s da
+  // Vercel — duas vezes seguidas, cada uma devolvendo uma página de texto no
+  // lugar do JSON.
+  //
+  // O prazo (45s) é a rede embaixo: quando o ciclo passa dele, a rota
+  // responde assim mesmo, dizendo quanto sobrou. O trabalho em andamento não
+  // se perde — cada página já foi gravada com seu cursor, e a próxima chamada
+  // retoma dali. Melhor uma resposta honesta de "ainda falta" que um 504 que
+  // não diz nada.
+  const ORCAMENTO_SYNC_MS = 25_000;
+  const PRAZO_RESPOSTA_MS = 45_000;
 
   // Sync e automação são relatados separados: se a automação falhar por falta
   // de ANTHROPIC_API_KEY, o sync ainda rodou, e a resposta precisa dizer isso
   // em vez de virar um 500 que esconde as duas coisas.
   let sync:
     | { recursos: number; falhas: number; parciais: number; pendentes: number }
+    | { estourou: true; pendentes: number }
     | { erro: string };
+  let estourouOPrazo = false;
+
   try {
-    const resultados = await runSyncCycle(new Date(), { orcamentoMs: ORCAMENTO_SYNC_MS });
-    sync = {
-      recursos: resultados.length,
-      falhas: resultados.filter((r) => r.outcome === 'FAILED').length,
-      parciais: resultados.filter((r) => r.outcome === 'PARTIAL').length,
-      // O numero que interessa a quem agenda de fora: enquanto for maior que
-      // zero, ha o que fazer e vale chamar de novo. Uma caixa nova leva
-      // dezenas de voltas ate zerar.
-      pendentes: await contarSyncStatesVencidos(),
-    };
+    const ESTOUROU = Symbol('estourou');
+    let alarme: ReturnType<typeof setTimeout> | undefined;
+    const resultados = await Promise.race([
+      runSyncCycle(new Date(), { orcamentoMs: ORCAMENTO_SYNC_MS }),
+      new Promise<typeof ESTOUROU>((resolve) => {
+        alarme = setTimeout(() => resolve(ESTOUROU), PRAZO_RESPOSTA_MS);
+      }),
+    ]).finally(() => clearTimeout(alarme));
+
+    // O número que interessa a quem agenda de fora: enquanto for maior que
+    // zero, há o que fazer e vale chamar de novo. Uma caixa nova leva dezenas
+    // de voltas até zerar.
+    const pendentes = await contarSyncStatesVencidos();
+
+    if (resultados === ESTOUROU) {
+      estourouOPrazo = true;
+      sync = { estourou: true, pendentes };
+    } else {
+      sync = {
+        recursos: resultados.length,
+        falhas: resultados.filter((r) => r.outcome === 'FAILED').length,
+        parciais: resultados.filter((r) => r.outcome === 'PARTIAL').length,
+        pendentes,
+      };
+    }
   } catch (error) {
     sync = { erro: error instanceof Error ? error.message : 'falha desconhecida' };
   }
 
   // `?automacao=0` roda só o sync — útil para um cron de alta frequência que
-  // não deve gastar chamadas de modelo a cada disparo.
-  const rodarAutomacao = request.nextUrl.searchParams.get('automacao') !== '0';
+  // não deve gastar chamadas de modelo a cada disparo. Se o sync já consumiu
+  // o prazo, a automação também fica de fora: começar agora seria garantir o
+  // 504 que o prazo existe para evitar.
+  const rodarAutomacao =
+    request.nextUrl.searchParams.get('automacao') !== '0' && !estourouOPrazo;
 
   let automacao: { triados: number; cobrancas: number } | { erro: string } | 'pulada' = 'pulada';
   if (rodarAutomacao) {

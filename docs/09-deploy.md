@@ -230,11 +230,27 @@ diário do `vercel.json` fica como rede de segurança, para a sincronização
 não parar de vez se o workflow for desligado.
 
 O workflow **chama em laço**, e é isso que faz diferença: cada requisição
-processa o que couber em ~40s e a resposta traz `sync.pendentes`, o número de
+processa o que couber em ~25s e a resposta traz `sync.pendentes`, o número de
 recursos que continuam vencidos. Enquanto for maior que zero, ele chama de
 novo (até 30 voltas). Uma caixa em dia zera na primeira; uma recém-conectada
 leva dezenas. As voltas de carga usam `?automacao=0` para não gastar chamada
 de modelo — a triagem roda uma vez só, no fim.
+
+**Dois relógios na rota, e os dois são necessários.** O orçamento de 25s
+impede *pegar* recurso novo; o prazo de 45s responde de qualquer jeito. Só o
+primeiro não basta — um recurso iniciado aos 24s ainda tem o tempo dele pela
+frente, e foi assim que o primeiro disparo automático estourou os 60s da
+Vercel duas vezes seguidas, devolvendo `FUNCTION_INVOCATION_TIMEOUT` em texto
+no lugar do JSON. Com o prazo, a resposta vira `{"estourou": true,
+"pendentes": N}` e o laço continua. Nada se perde no estouro: cada página já
+foi gravada com seu cursor.
+
+**Uma volta que falha não derruba o job.** O sync é retomável por desenho,
+então desistir na primeira falha jogaria fora as voltas restantes por causa
+de um 504 isolado — ou de um deploy acontecendo no meio da execução, que foi
+exatamente o que aconteceu na primeira vez. O que não se tolera é falha
+atrás de falha: três seguidas e o job para vermelho, porque aí não é soluço,
+é a rota fora do ar.
 
 Para ligar, dois segredos em **Settings → Secrets and variables → Actions →
 New repository secret**:
