@@ -19,6 +19,36 @@ import { registrarMensagem } from '@/core/whatsapp/entrada';
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
 
+/**
+ * GET: alguem abriu a URL no navegador.
+ *
+ * Quase sempre e o dono, conferindo se o webhook esta no ar. Sem isto a
+ * resposta era um 405 cru — "Esta pagina nao esta funcionando" — que le
+ * como app quebrado quando significa o oposto: a rota existe e esta viva.
+ *
+ * Esta rota e publica, entao a pagina nao diz NADA sobre configuracao —
+ * nem se o token existe, nem quantos numeros a allowlist tem. Isso fica em
+ * /financeiro/entrada, atras da senha.
+ */
+export function GET() {
+  const texto = [
+    'Webhook do Twilio (WhatsApp) do Meridiano.',
+    '',
+    'Ver esta pagina significa que a rota esta publicada e no ar.',
+    '',
+    'Ela recebe POST — o que o Twilio envia quando chega uma mensagem. O',
+    'navegador faz GET, por isso nao ha nada para mostrar aqui.',
+    '',
+    'Para configurar no Twilio: "When a message comes in" -> esta URL, metodo POST.',
+    'O estado do canal (provedor, numeros aceitos) esta em /financeiro/entrada.',
+    '',
+  ].join('\n');
+  return new NextResponse(texto, {
+    status: 200,
+    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
+
 export async function POST(request: NextRequest) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!authToken) {
