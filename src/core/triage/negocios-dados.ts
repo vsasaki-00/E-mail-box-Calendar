@@ -28,26 +28,52 @@ export interface NegocioLido {
  * A semeadura usa `createMany` com `skipDuplicates`: duas abas abrindo a
  * tela ao mesmo tempo não podem criar a lista em dobro.
  */
+/**
+ * A lista de código, no formato da tabela.
+ *
+ * Serve de rede: enquanto o delta de SQL não roda em produção, a tabela não
+ * existe e uma consulta a ela derruba toda a tela do financeiro. Já
+ * aconteceu — e uma migração pendente não pode custar o app inteiro. Sem
+ * `id` real, a tela de cadastro não deixa editar; é o comportamento certo,
+ * porque não há onde gravar ainda.
+ */
+function listaDeCodigo(): NegocioLido[] {
+  return BUSINESS_CONTEXTS.map((name, i) => ({
+    id: `codigo:${name}`,
+    name,
+    system: true,
+    archived: false,
+    sortOrder: (i + 1) * 10,
+  }));
+}
+
 export async function listarNegocios(userId: string, incluirArquivados = false): Promise<NegocioLido[]> {
-  const existe = await prisma.business.count({ where: { userId } });
+  try {
+    const existe = await prisma.business.count({ where: { userId } });
 
-  if (existe === 0) {
-    await prisma.business.createMany({
-      data: BUSINESS_CONTEXTS.map((name, i) => ({
-        userId,
-        name,
-        sortOrder: (i + 1) * 10,
-        system: DO_SISTEMA.has(name),
-      })),
-      skipDuplicates: true,
+    if (existe === 0) {
+      await prisma.business.createMany({
+        data: BUSINESS_CONTEXTS.map((name, i) => ({
+          userId,
+          name,
+          sortOrder: (i + 1) * 10,
+          system: DO_SISTEMA.has(name),
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    return await prisma.business.findMany({
+      where: { userId, ...(incluirArquivados ? {} : { archived: false }) },
+      orderBy: [{ archived: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, system: true, archived: true, sortOrder: true },
     });
+  } catch {
+    // Tabela ainda não criada (delta pendente) ou banco fora: a lista de
+    // código mantém as telas de pé. O cadastro fica indisponível, o resto
+    // funciona.
+    return listaDeCodigo();
   }
-
-  return prisma.business.findMany({
-    where: { userId, ...(incluirArquivados ? {} : { archived: false }) },
-    orderBy: [{ archived: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
-    select: { id: true, name: true, system: true, archived: true, sortOrder: true },
-  });
 }
 
 /** Só os nomes ativos, na ordem — é o que os menus e o prompt consomem. */
@@ -176,6 +202,8 @@ export async function apagarNegocio(userId: string, id: string): Promise<Resulta
 
 /** Existe e está ativo? Substitui o `isBusinessContext` da lista fixa. */
 export async function negocioValido(userId: string, nome: string): Promise<boolean> {
+  // `listarNegocios` já cai na lista de código quando a tabela não existe,
+  // então uma migração pendente recusa nome novo em vez de dar erro 500.
   const nomes = await listarNegocios(userId, true);
   return nomes.some((n) => chaveDeNome(n.name) === chaveDeNome(nome));
 }

@@ -1105,6 +1105,10 @@ enum InboxStatus {
   ACCEPTED
   /// Voce disse que nao e lancamento.
   REJECTED
+  /// Voce disse que isso VAI APARECER no extrato. Nao vira lancamento: fica
+  /// esperando a linha certa da proxima importacao para colar o significado
+  /// nela. Ver docs/10-financeiro.md
+  WAITING_STATEMENT
   /// Nao deu para interpretar (midia que nao sei ler, texto sem valor).
   FAILED
 }

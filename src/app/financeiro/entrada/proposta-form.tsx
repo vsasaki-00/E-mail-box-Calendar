@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState, useState, useTransition } from 'react';
-import { confirmarEntrada, descartarEntrada, type ResultadoEntrada } from './actions';
+import { aguardarExtrato, confirmarEntrada, descartarEntrada, type ResultadoEntrada } from './actions';
 
 /**
  * Uma proposta vinda do WhatsApp, editável antes de virar lançamento.
@@ -62,6 +62,7 @@ export function PropostaForm({
 
   return (
     <form action={acao} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+      <input type="hidden" name="mensagemId" value={item.id} />
       <select name="direcao" defaultValue={item.direcao} style={campo}>
         <option value="SAIDA">saiu</option>
         <option value="ENTRADA">entrou</option>
@@ -102,6 +103,19 @@ export function PropostaForm({
         style={{ ...campo, cursor: enviando ? 'progress' : 'pointer', border: '1px solid var(--ok)', color: 'var(--ok)' }}
       >
         {enviando ? 'lançando…' : 'lançar'}
+      </button>
+      {/* Terceiro caminho, e o que evita contar o mesmo pagamento duas
+          vezes: o que vai aparecer no extrato NAO deve virar lancamento
+          aqui. Vira nota, e o significado cola na linha certa na proxima
+          importacao. */}
+      <button
+        type="submit"
+        formAction={aguardarExtrato}
+        disabled={descartando}
+        title="Não vira lançamento agora: espera a linha correspondente do extrato e cola o negócio e a categoria nela."
+        style={{ ...campo, cursor: 'pointer', background: 'transparent', color: 'var(--meridiano)' }}
+      >
+        vem no extrato
       </button>
       <button
         type="button"

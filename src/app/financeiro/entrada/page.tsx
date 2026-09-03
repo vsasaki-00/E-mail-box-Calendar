@@ -57,6 +57,18 @@ export default async function PaginaEntrada() {
   const configurado = viaTwilio || viaMeta;
   const provedor = viaTwilio ? 'Twilio' : viaMeta ? 'Cloud API da Meta' : null;
   const allowlist = lerAllowlist(process.env.WHATSAPP_ALLOWED_NUMBERS);
+  // Consulta SEPARADA: `WAITING_STATEMENT` é um valor de enum que só existe
+  // depois do delta `fase8-notas.sql`. Junto com os outros status, um delta
+  // pendente derrubaria a tela inteira — já derrubou uma vez, e uma migração
+  // que falta não pode custar a página.
+  const esperandoExtrato = await prisma.inboxMessage
+    .findMany({
+      where: { userId: usuario.id, status: 'WAITING_STATEMENT' },
+      orderBy: { proposedDate: 'desc' },
+      take: 50,
+    })
+    .catch(() => []);
+
   const propostas = mensagens.filter((m) => m.status === 'PROPOSED');
   const semProposta = mensagens.filter((m) => m.status !== 'PROPOSED');
 
@@ -117,6 +129,37 @@ export default async function PaginaEntrada() {
           apareceu aqui, o primeiro suspeito é este número não ser exatamente o seu, com o código
           do país.
         </p>
+      )}
+
+      {esperandoExtrato.length > 0 && (
+        <section className="card" style={{ marginBottom: 16 }}>
+          <h2>Esperando o extrato</h2>
+          <p className="sub" style={{ marginTop: -4, marginBottom: 8 }}>
+            {/* Nao viraram lancamento de proposito: viriam em dobro. O que
+                elas guardam e o significado, que o banco nunca vai saber. */}
+            Não são lançamentos — o extrato vai trazer o valor. Estas notas guardam o que ele nunca
+            vai saber: para que foi e de qual negócio. Colam sozinhas na linha correspondente da
+            próxima importação, e só quando o casamento for inequívoco.
+          </p>
+          {esperandoExtrato.map((m) => (
+            <div key={m.id} className="linha alto">
+              <span className="titulo-item solto">
+                <strong>
+                  {m.proposedDirection === 'ENTRADA' ? '+' : '−'}
+                  {formatarValor(m.proposedAmountCents ?? 0)}
+                </strong>{' '}
+                {m.proposedDescription ?? '(sem descrição)'}
+                <br />
+                <span className="sub">
+                  {m.proposedDate ? formatDateTime(m.proposedDate, tz) : ''}
+                  {m.proposedBusiness ? ` · ${m.proposedBusiness}` : ''}
+                  {m.proposedCategory ? ` · ${m.proposedCategory}` : ''}
+                </span>
+              </span>
+              <BotaoDescartar mensagemId={m.id} />
+            </div>
+          ))}
+        </section>
       )}
 
       <section className="card" style={{ marginBottom: 16 }}>

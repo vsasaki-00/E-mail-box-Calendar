@@ -266,6 +266,16 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
     // A conciliacao tem sua propria tela e botao; a importacao ja valeu.
   }
 
+  // Notas que esperavam o extrato: colam ANTES das categorias, porque a
+  // categoria que voce deu na nota tem precedencia sobre regra e palpite.
+  let coladas = 0;
+  try {
+    const { aplicarNotasPendentes } = await import('./notas-aplicar');
+    coladas = (await aplicarNotasPendentes(params.userId, statement.id)).coladas;
+  } catch {
+    // A nota continua esperando a proxima importacao; nada se perde.
+  }
+
   // Categorias: regras suas e palpites, so no que ainda nao tem.
   try {
     const { aplicarCategorias } = await import('../categorizar');
@@ -277,6 +287,9 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
   const avisos = [...extrato.avisos];
   if (sugeridos > 0) {
     avisos.push(`${sugeridos} par(es) com cobranças de e-mail sugerido(s) — confira em Conciliação.`);
+  }
+  if (coladas > 0) {
+    avisos.push(`${coladas} nota(s) do WhatsApp coladas nos lançamentos correspondentes.`);
   }
   if (duplicados > 0) {
     avisos.push(`${duplicados} lançamento(s) já existiam (de outro arquivo) e não foram repetidos.`);
