@@ -46,6 +46,7 @@ export async function refreshAlerts(
       status: conexao.status,
       isStale: conexao.isStale,
       minutesSinceSync: conexao.minutesSinceSync,
+      recursoAtrasado: conexao.recursoAtrasado,
       lastErrorMessage: conexao.lastErrorMessage,
     })),
     conflicts: conflitos,

@@ -26,6 +26,22 @@ agendamento. Resultado: toda conexão ficava vermelha o tempo inteiro, menos nos
 15 minutos seguintes a um sync, e a Torre carregava seis alertas permanentes.
 Um alarme que nunca desliga ensina a ignorar todos os alarmes.
 
+**A idade é a do recurso mais atrasado, não a do último sync qualquer.**
+`Connection.lastSyncAt` é gravado quando QUALQUER recurso termina bem, e por
+isso é otimista por construção: com o e-mail rodando e a agenda parada, o
+campo diz "sincronizei agora" e esconde exatamente a metade que quebrou —
+falha que já aconteceu aqui, quando o e-mail ganhava sempre o desempate e o
+calendário nunca rodava. Uma conta vale o seu pior recurso
+(`frescorDaConexao`), e a tela diz qual é ele: *"sync há 22h (agenda)"*.
+
+**Uma etiqueta só, em `core/metrics/estado-conexao.ts`.** A Torre e a tela de
+Conexões tinham cada uma a sua cópia do vocabulário, e elas discordavam: a
+Torre conhecia "atrasada" e Conexões não, então a mesma conta aparecia
+"atrasada" numa e "ativa" na outra. Duas verdades sobre o mesmo fato é o jeito
+mais rápido de o usuário parar de acreditar nas duas. Quem mostra estado de
+conexão — Torre, Conexões, alertas — chama `estadoDaConexao` e
+`descreverIdade` de lá.
+
 ### 2. Agenda do dia unificada
 Todos os eventos de todas as contas, em uma faixa de tempo, coloridos por
 conexão. Conflitos (sobreposição) aparecem destacados, porque essa é a única

@@ -7,6 +7,12 @@ import { SincronizacaoAutomatica } from './automatico';
 import { ConfiguracaoDoBanco } from './config-banco';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
+import {
+  estadoDaConexao,
+  frescorDaConexao,
+  haQuantoTempo,
+  nomeDoRecurso,
+} from '@/core/metrics/estado-conexao';
 
 /**
  * Pagina de conexoes: conectar contas novas e gerenciar as existentes.
@@ -29,21 +35,6 @@ const PROVIDER_LABEL: Record<string, string> = {
   IMAP_CALDAV: 'IMAP/CalDAV',
 };
 
-function statusTexto(status: string): { classe: string; texto: string } {
-  switch (status) {
-    case 'ACTIVE':
-      return { classe: 'ok', texto: 'ativa' };
-    case 'REAUTH_REQUIRED':
-      return { classe: 'crit', texto: 'reautenticar' };
-    case 'ERROR':
-      return { classe: 'crit', texto: 'erro' };
-    case 'DISABLED':
-      return { classe: 'warn', texto: 'desativada' };
-    default:
-      return { classe: 'warn', texto: 'degradada' };
-  }
-}
-
 export default async function PaginaConexoes({
   searchParams,
 }: {
@@ -56,8 +47,15 @@ export default async function PaginaConexoes({
     ? await prisma.connection.findMany({
         where: { userId: usuario.id },
         orderBy: { createdAt: 'asc' },
+        // A conta so esta atual quando o recurso mais atrasado dela esta:
+        // `lastSyncAt` da conexao e gravado por QUALQUER recurso que termine
+        // bem, e por isso esconde a metade parada. Ver `frescorDaConexao`.
+        include: {
+          syncStates: { select: { resource: true, lastSyncAt: true } },
+        },
       })
     : [];
+  const agora = new Date();
 
   const googleConfigurado = Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
@@ -165,6 +163,10 @@ export default async function PaginaConexoes({
           </div>
           <SincronizacaoAutomatica
             ultimoSync={
+              // O mais RECENTE entre as contas: aqui a pergunta e "o
+              // agendamento rodou?", e uma volta que pegou qualquer conta
+              // responde que sim. Quem responde "esta conta esta atual?" e a
+              // linha da conta, logo abaixo.
               conexoes.reduce<Date | null>(
                 (maior, c) =>
                   c.lastSyncAt && (!maior || c.lastSyncAt > maior) ? c.lastSyncAt : maior,
@@ -177,7 +179,8 @@ export default async function PaginaConexoes({
             <p className="vazio">Nenhuma conta conectada ainda.</p>
           ) : (
             conexoes.map((conexao) => {
-              const pill = statusTexto(conexao.status);
+              const frescor = frescorDaConexao(conexao, conexao.syncStates, agora);
+              const pill = estadoDaConexao(conexao, frescor, agora);
               return (
                 <div key={conexao.id} className="linha" style={{ alignItems: 'center' }}>
                   <span className="ponto" style={{ background: conexao.color }} />
@@ -186,9 +189,16 @@ export default async function PaginaConexoes({
                     <br />
                     <span className="sub">
                       {PROVIDER_LABEL[conexao.provider] ?? conexao.provider}
-                      {conexao.lastSyncAt
-                        ? ` · último sync ${formatDateTime(conexao.lastSyncAt, tz)}`
+                      {/* Relativo E absoluto, e o relativo primeiro: e ele
+                          que a Torre mostra, e as duas telas precisam dizer
+                          o mesmo numero. O relogio exato fica na frente de
+                          quem foi ate aqui conferir. */}
+                      {frescor.desde
+                        ? ` · último sync ${haQuantoTempo(frescor.desde, agora)} (${formatDateTime(frescor.desde, tz)})`
                         : ' · nunca sincronizou'}
+                      {frescor.recurso && pill.atrasada
+                        ? ` · parada: ${nomeDoRecurso(frescor.recurso)}`
+                        : ''}
                       {conexao.lastErrorMessage ? ` · ${conexao.lastErrorMessage}` : ''}
                     </span>
                   </span>

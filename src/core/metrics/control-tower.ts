@@ -3,6 +3,11 @@ import { findConflicts, findFocusWindows, type ConflictCandidate } from './confl
 import type { Conflict } from './conflicts';
 import { computeSla, mostOverdue, type AwaitingReply, type MailboxSla } from './sla';
 import { refreshAlerts } from '@/core/alerts/refresh';
+import {
+  estadoDaConexao,
+  frescorDaConexao,
+  type RecursoSincronizado,
+} from './estado-conexao';
 
 /**
  * Agregacoes da Torre de Controle. Ver docs/05-torre-de-controle.md
@@ -19,12 +24,20 @@ export interface ConnectionHealth {
   displayName: string | null;
   color: string;
   status: string;
+  /**
+   * Quando a conta ficou INTEIRA — o sync do recurso mais atrasado dela, e
+   * nao `Connection.lastSyncAt`. Ver `frescorDaConexao`.
+   */
   lastSyncAt: Date | null;
   lastErrorMessage: string | null;
-  /** Minutos desde o ultimo sync bem-sucedido. null = nunca sincronizou. */
+  /** Minutos desde `lastSyncAt`. null = ha recurso que nunca sincronizou. */
   minutesSinceSync: number | null;
-  /** Atrasado alem de 3x o intervalo esperado. Silencio nao e saude. */
+  /** Qual recurso esta segurando a conta atras ('MAIL', 'CALENDAR'). */
+  recursoAtrasado: string | null;
+  /** Silencio alem da cadencia do agendamento. Silencio nao e saude. */
   isStale: boolean;
+  /** A etiqueta que as telas mostram. Uma so, para nao discordarem. */
+  rotulo: { classe: string; texto: string };
   unreadCount: number;
   eventsToday: number;
 }
@@ -120,49 +133,6 @@ export interface ControlTowerData {
 }
 
 /**
- * Quanto tempo sem sync é normal.
- *
- * Este número é da IMPLANTAÇÃO, não do conector. O conector declara
- * `pollIntervalSeconds: 300` — "dá para me ler a cada 5 minutos" —, mas
- * quem chama é o agendamento do GitHub Actions, 3× por dia (10h, 16h e 22h
- * UTC). O maior intervalo normal é o da noite: **12 horas**.
- *
- * Usar os 5 minutos do conector como régua deixava TODA conexão marcada
- * "atrasada" o tempo inteiro, menos nos 15 minutos seguintes a um sync — e
- * gerava seis alertas permanentes na Torre. Um alarme que nunca desliga
- * ensina a ignorar todos os alarmes.
- *
- * Se você mudar a cadência do agendamento, ajuste
- * `SYNC_EXPECTED_INTERVAL_MINUTES`.
- */
-const DEFAULT_INTERVAL_MINUTES = 12 * 60;
-
-/**
- * Folga sobre o intervalo esperado.
- *
- * Um ciclo leva minutos e pode atrasar; 25% de folga (15h sobre 12h) evita
- * gritar por causa disso, e ainda pega um ciclo PERDIDO — que produziria um
- * intervalo de 18h ou mais.
- */
-const STALE_MULTIPLIER = 1.25;
-
-export function intervaloEsperadoMinutos(): number {
-  const bruto = Number(process.env.SYNC_EXPECTED_INTERVAL_MINUTES);
-  return Number.isFinite(bruto) && bruto > 0 ? bruto : DEFAULT_INTERVAL_MINUTES;
-}
-
-export function isSyncStale(
-  lastSyncAt: Date | null,
-  expectedIntervalMinutes = DEFAULT_INTERVAL_MINUTES,
-  now = new Date(),
-): boolean {
-  // Conta que nunca sincronizou e um problema, nao um estado neutro.
-  if (!lastSyncAt) return true;
-  const elapsedMinutes = (now.getTime() - lastSyncAt.getTime()) / 60_000;
-  return elapsedMinutes > expectedIntervalMinutes * STALE_MULTIPLIER;
-}
-
-/**
  * Colapsa as copias do mesmo compromisso em uma unica linha.
  *
  * Sem isso a agenda unificada mostra a mesma reuniao uma vez por caixa, que e
@@ -221,6 +191,7 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
 
   const [
     connections,
+    syncStates,
     events,
     unreadAggregates,
     oldestUnread,
@@ -237,6 +208,12 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
     prisma.connection.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
+    }),
+    // Por RECURSO: uma conta so esta atual quando a parte mais atrasada
+    // dela esta. Ver `frescorDaConexao`.
+    prisma.syncState.findMany({
+      where: { connection: { userId } },
+      select: { connectionId: true, resource: true, lastSyncAt: true },
     }),
     prisma.calendarEvent.findMany({
       where: {
@@ -324,11 +301,20 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
     );
   }
 
+  const recursosPorConexao = new Map<string, RecursoSincronizado[]>();
+  for (const estado of syncStates) {
+    const lista = recursosPorConexao.get(estado.connectionId) ?? [];
+    lista.push({ resource: estado.resource, lastSyncAt: estado.lastSyncAt });
+    recursosPorConexao.set(estado.connectionId, lista);
+  }
+
   const health: ConnectionHealth[] = connections.map((connection) => {
-    // Deliberadamente NÃO usa `pollIntervalSeconds` do conector: aquilo é
-    // "com que frequência dá para me ler", e não "com que frequência sou
-    // lido". Quem decide a segunda é o agendamento.
-    const expectedMinutes = intervaloEsperadoMinutos();
+    const frescor = frescorDaConexao(
+      connection,
+      recursosPorConexao.get(connection.id) ?? [],
+      now,
+    );
+    const rotulo = estadoDaConexao(connection, frescor, now);
 
     return {
       id: connection.id,
@@ -337,14 +323,12 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
       displayName: connection.displayName,
       color: connection.color,
       status: connection.status,
-      lastSyncAt: connection.lastSyncAt,
+      lastSyncAt: frescor.desde,
       lastErrorMessage: connection.lastErrorMessage,
-      minutesSinceSync: connection.lastSyncAt
-        ? Math.round((now.getTime() - connection.lastSyncAt.getTime()) / 60_000)
-        : null,
-      isStale:
-        connection.status !== 'DISABLED' &&
-        isSyncStale(connection.lastSyncAt, expectedMinutes, now),
+      minutesSinceSync: frescor.minutos,
+      recursoAtrasado: frescor.recurso,
+      isStale: rotulo.atrasada,
+      rotulo: { classe: rotulo.classe, texto: rotulo.texto },
       unreadCount: unreadByConnection.get(connection.id) ?? 0,
       eventsToday: eventsPerConnection.get(connection.id) ?? 0,
     };

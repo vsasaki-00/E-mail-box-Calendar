@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { AlertaLinha } from './alerta-linha';
 import { loadControlTower, type ControlTowerData } from '@/core/metrics/control-tower';
 import { DEFAULT_TIMEZONE, formatDateTime, formatTime } from '@/core/time/zone';
+import { descreverIdade, nomeDoRecurso } from '@/core/metrics/estado-conexao';
 import { Nav } from './nav';
 import {
   IconeBussola,
@@ -33,15 +34,6 @@ const PROVIDER_LABEL: Record<string, string> = {
 // Sempre com fuso explicito: o padrao e o do servidor. Ver core/time/zone.
 function hora(date: Date, tz: string): string {
   return formatTime(date, tz);
-}
-
-function statusPill(status: string, isStale: boolean) {
-  if (status === 'ACTIVE' && !isStale) return { classe: 'ok', texto: 'ativa' };
-  if (status === 'REAUTH_REQUIRED') return { classe: 'crit', texto: 'reautenticar' };
-  if (status === 'ERROR') return { classe: 'crit', texto: 'erro' };
-  if (status === 'DISABLED') return { classe: 'warn', texto: 'desativada' };
-  if (isStale) return { classe: 'warn', texto: 'atrasada' };
-  return { classe: 'warn', texto: 'degradada' };
 }
 
 function Vazio({ children }: { children: React.ReactNode }) {
@@ -182,25 +174,28 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
           {dados.connections.length === 0 ? (
             <Vazio>Nenhuma conta conectada ainda.</Vazio>
           ) : (
-            dados.connections.map((conexao) => {
-              const pill = statusPill(conexao.status, conexao.isStale);
-              return (
-                <div key={conexao.id} className="linha">
-                  <span className="ponto" style={{ background: conexao.color }} />
-                  <span className="titulo-item">
-                    {conexao.accountEmail}
-                    <br />
-                    <span className="sub">
-                      {PROVIDER_LABEL[conexao.provider] ?? conexao.provider}
-                      {conexao.minutesSinceSync !== null
-                        ? ` · sync há ${conexao.minutesSinceSync}min`
-                        : ' · nunca sincronizou'}
-                    </span>
+            dados.connections.map((conexao) => (
+              <div key={conexao.id} className="linha">
+                <span className="ponto" style={{ background: conexao.color }} />
+                <span className="titulo-item">
+                  {conexao.accountEmail}
+                  <br />
+                  <span className="sub">
+                    {PROVIDER_LABEL[conexao.provider] ?? conexao.provider}
+                    {conexao.minutesSinceSync === null
+                      ? ' · nunca sincronizou'
+                      : ` · sync ${descreverIdade(conexao.minutesSinceSync)}`}
+                    {/* Dizer QUAL parte está atrás: "sync há 40h" numa conta
+                        cujo e-mail chegou agora parece erro do painel até
+                        você ler que quem está parada é a agenda. */}
+                    {conexao.recursoAtrasado && conexao.isStale
+                      ? ` (${nomeDoRecurso(conexao.recursoAtrasado)})`
+                      : ''}
                   </span>
-                  <span className={`pill ${pill.classe}`}>{pill.texto}</span>
-                </div>
-              );
-            })
+                </span>
+                <span className={`pill ${conexao.rotulo.classe}`}>{conexao.rotulo.texto}</span>
+              </div>
+            ))
           )}
         </section>
 

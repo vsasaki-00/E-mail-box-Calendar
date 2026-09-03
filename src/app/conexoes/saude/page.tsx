@@ -14,8 +14,8 @@ import { carregarSaude, PERIODOS, periodoValido } from '@/core/metrics/saude-dad
  * Painel de saúde do sync. Ver docs/13-saude.md
  *
  * A pergunta que esta tela responde é uma só: **por que a caixa está
- * desatualizada?** A Torre já diz "sync há 40min"; aqui está o histórico
- * que explica o 40.
+ * desatualizada?** A Torre já diz "sync há 22h (agenda)"; aqui está o
+ * histórico que explica as 22 horas — e por que foi a agenda.
  */
 
 export const dynamic = 'force-dynamic';

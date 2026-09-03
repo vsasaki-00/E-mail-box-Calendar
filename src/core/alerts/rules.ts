@@ -10,6 +10,8 @@
  * nao protege mais de nada.
  */
 
+import { descreverIdade, nomeDoRecurso } from '@/core/metrics/estado-conexao';
+
 export type AlertSeverity = 'INFO' | 'WARN' | 'CRITICAL';
 
 export type AlertKind =
@@ -42,6 +44,8 @@ export interface AlertConnectionState {
   status: string;
   isStale: boolean;
   minutesSinceSync: number | null;
+  /** Qual recurso esta segurando a conta atras ('MAIL', 'CALENDAR'). */
+  recursoAtrasado: string | null;
   lastErrorMessage: string | null;
 }
 
@@ -121,16 +125,17 @@ export function connectionAlerts(conexoes: AlertConnectionState[]): DerivedAlert
     }
 
     if (conexao.isStale) {
-      const horas =
-        conexao.minutesSinceSync === null ? null : Math.floor(conexao.minutesSinceSync / 60);
+      // A mesma escrita da Torre e de Conexoes: o alerta que descreve o
+      // atraso com outra unidade parece falar de outra conta.
+      const parte = conexao.recursoAtrasado ? ` (${nomeDoRecurso(conexao.recursoAtrasado)})` : '';
       alertas.push({
         kind: 'SYNC_STALE',
         severity: 'WARN',
         title: `${conexao.label} está atrasada`,
         detail:
           conexao.minutesSinceSync === null
-            ? 'Esta conta nunca sincronizou.'
-            : `Último sync há ${horas !== null && horas >= 1 ? `${horas}h` : `${Math.round(conexao.minutesSinceSync)}min`}. ` +
+            ? `Há parte desta conta que nunca sincronizou${parte}.`
+            : `Último sync ${descreverIdade(conexao.minutesSinceSync)}${parte}. ` +
               'Silêncio não é saúde: o que você vê dela pode estar velho.',
         dedupeKey: `sync-stale:${conexao.id}`,
         context: { connectionId: conexao.id },

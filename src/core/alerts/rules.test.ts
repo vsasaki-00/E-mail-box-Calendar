@@ -14,6 +14,7 @@ const conexao = (over: Partial<AlertConnectionState> = {}): AlertConnectionState
   status: 'ACTIVE',
   isStale: false,
   minutesSinceSync: 4,
+  recursoAtrasado: null,
   lastErrorMessage: null,
   ...over,
 });
@@ -33,7 +34,22 @@ describe('connectionAlerts', () => {
     const [alerta] = connectionAlerts([conexao({ isStale: true, minutesSinceSync: 130 })]);
     expect(alerta?.kind).toBe('SYNC_STALE');
     expect(alerta?.severity).toBe('WARN');
-    expect(alerta?.detail).toContain('2h');
+    expect(alerta?.detail).toContain('há 2h');
+  });
+
+  it('diz QUAL parte da conta esta parada', () => {
+    // "atrasada" numa conta cujo e-mail chegou agora parece erro do painel
+    // ate voce ler que quem esta parada e a agenda.
+    const [alerta] = connectionAlerts([
+      conexao({ isStale: true, minutesSinceSync: 2400, recursoAtrasado: 'CALENDAR' }),
+    ]);
+    expect(alerta?.detail).toContain('agenda');
+
+    const [nunca] = connectionAlerts([
+      conexao({ isStale: true, minutesSinceSync: null, recursoAtrasado: 'CALENDAR' }),
+    ]);
+    expect(nunca?.detail).toContain('nunca sincronizou');
+    expect(nunca?.detail).toContain('agenda');
   });
 
   it('NAO emite atraso junto com reautenticacao', () => {
