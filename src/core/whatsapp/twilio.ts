@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { MensagemRecebida } from './entrada';
 import { normalizarNumero } from './seguranca';
+import { pareceNomeDeArquivo } from './escolha';
 
 /**
  * Adaptador do Twilio. Ver docs/11-whatsapp.md
@@ -87,7 +88,11 @@ export function converterTwilio(params: Record<string, string>, agora = new Date
   const quantidade = Number(params.NumMedia ?? '0');
   const temMidia = Number.isFinite(quantidade) && quantidade > 0;
   const contentType = params.MediaContentType0;
-  const corpo = params.Body?.trim();
+  // Anexo sem legenda: o Twilio manda o NOME DO ARQUIVO no corpo. Tratar
+  // isso como legenda vira descricao lixo e joga os digitos do nome na
+  // disputa por "qual numero e o valor".
+  const bruto = params.Body?.trim();
+  const corpo = bruto && temMidia && pareceNomeDeArquivo(bruto) ? undefined : bruto;
 
   return {
     externalId: sid,

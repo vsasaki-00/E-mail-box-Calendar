@@ -1,5 +1,5 @@
 import { formatarValor } from '@/core/finance/format';
-import { menuDeNegocios } from './escolha';
+import { menuDeCategorias, menuDeNegocios } from './escolha';
 
 /**
  * O que o Meridiano responde no WhatsApp. Ver docs/11-whatsapp.md
@@ -167,9 +167,24 @@ export function montarResposta(ctx: ContextoResposta, timeZone = 'America/Sao_Pa
  * lugar certo. Repetir valor e descrição prova que sim — sem isso, "ok"
  * poderia ter caído em qualquer proposta.
  */
-export function respostaDeEscolha(negocio: string, proposta: { amountCents?: number; descricao?: string }): string {
-  const partes = [negocio];
+export function respostaDeEscolha(
+  escolhido: string,
+  proposta: { amountCents?: number; descricao?: string },
+  proximaPergunta?: 'categoria',
+): string {
+  const partes = [escolhido];
   if (proposta.amountCents) partes.push(formatarValor(proposta.amountCents));
   if (proposta.descricao) partes.push(proposta.descricao);
-  return `Anotado: ${partes.join(' · ')}\n\nConfirme no painel. Nada foi lançado ainda.`;
+
+  const linhas = [`Anotado: ${partes.join(' · ')}`];
+
+  // A segunda pergunta só aparece depois que você respondeu a primeira:
+  // juntar seis negócios com dezessete categorias numa mensagem só seria um
+  // paredão que ninguém lê.
+  if (proximaPergunta === 'categoria') {
+    linhas.push('', 'E a categoria? Responda o número — ou ignore.', menuDeCategorias());
+  }
+
+  linhas.push('', 'Confirme no painel. Nada foi lançado ainda.');
+  return linhas.join('\n');
 }

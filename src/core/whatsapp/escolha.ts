@@ -1,4 +1,5 @@
 import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
+import { CATEGORIAS } from '@/core/finance/categorias';
 
 /**
  * Ler a resposta a uma pergunta feita na conversa. Ver docs/11-whatsapp.md
@@ -12,9 +13,17 @@ import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
  * resposta perdida você só repete.
  */
 
-/** Menu numerado, para caber numa linha de WhatsApp. */
+/** Menu numerado, para caber em poucas linhas de WhatsApp. */
+export function menuNumerado(opcoes: readonly string[]): string {
+  return opcoes.map((nome, i) => `${i + 1} ${nome}`).join(' · ');
+}
+
 export function menuDeNegocios(contextos: readonly string[] = BUSINESS_CONTEXTS): string {
-  return contextos.map((nome, i) => `${i + 1} ${nome}`).join(' · ');
+  return menuNumerado(contextos);
+}
+
+export function menuDeCategorias(): string {
+  return menuNumerado(CATEGORIAS);
 }
 
 /** Sem acento, minúsculo, sem pontuação — para comparar nome digitado. */
@@ -40,6 +49,15 @@ export function interpretarEscolhaDeNegocio(
   texto: string,
   contextos: readonly string[] = BUSINESS_CONTEXTS,
 ): string | undefined {
+  return interpretarEscolha(texto, contextos);
+}
+
+/** A mesma leitura, para a pergunta de categoria — que vem no segundo passo. */
+export function interpretarEscolhaDeCategoria(texto: string): string | undefined {
+  return interpretarEscolha(texto, CATEGORIAS);
+}
+
+function interpretarEscolha(texto: string, contextos: readonly string[]): string | undefined {
   const limpo = texto.trim();
 
   // Uma resposta de menu é curta. Uma frase longa é outra coisa, mesmo que
@@ -64,4 +82,19 @@ export function interpretarEscolhaDeNegocio(
 
   const candidatos = contextos.filter((n) => achatar(n).startsWith(achatado));
   return candidatos.length === 1 ? candidatos[0] : undefined;
+}
+
+/**
+ * O texto é só o nome do arquivo?
+ *
+ * O Twilio manda o nome do arquivo no corpo quando você anexa sem escrever
+ * nada. Tratado como legenda, ele vira descrição (`7172622995683306 pdf`) e
+ * seus dígitos viram candidatos a valor — foi de onde saiu o número que
+ * estourou a coluna e derrubou o webhook.
+ *
+ * Um nome de arquivo é um token só, sem espaço, terminado em extensão
+ * conhecida. Uma legenda de verdade com essa forma é implausível.
+ */
+export function pareceNomeDeArquivo(texto: string): boolean {
+  return /^\S+\.(pdf|jpe?g|png|gif|webp|heic|ogg|opus|mp3|m4a|mp4|3gp|docx?|xlsx?|csv|ofx)$/i.test(texto.trim());
 }

@@ -294,6 +294,32 @@ export async function propostaEsperandoNegocio(
 }
 
 /**
+ * A proposta que já tem negócio e ainda não tem categoria.
+ *
+ * A segunda pergunta. Quem decide qual das duas está de pé é o estado da
+ * própria proposta — não um contador de passos guardado em algum lugar, que
+ * dessincronizaria na primeira reentrega.
+ */
+export async function propostaEsperandoCategoria(
+  userId: string,
+  fromNumber: string,
+  agora = new Date(),
+) {
+  return prisma.inboxMessage.findFirst({
+    where: {
+      userId,
+      fromNumber,
+      status: 'PROPOSED',
+      proposedBusiness: { not: null },
+      proposedCategory: null,
+      receivedAt: { gte: new Date(agora.getTime() - JANELA_DA_PERGUNTA_MS) },
+    },
+    orderBy: { receivedAt: 'desc' },
+    select: { id: true, proposedAmountCents: true, proposedDescription: true },
+  });
+}
+
+/**
  * Grava a resposta e anota o negócio na proposta, numa transação.
  *
  * A mensagem é registrada como `REJECTED` — que é a verdade: um `3` não é
@@ -304,8 +330,10 @@ export async function registrarEscolha(
   userId: string,
   msg: MensagemRecebida,
   propostaId: string,
-  negocio: string,
+  escolha: { negocio: string } | { categoria: string },
 ): Promise<{ duplicada: boolean }> {
+  const rotulo = 'negocio' in escolha ? escolha.negocio : escolha.categoria;
+  const campo = 'negocio' in escolha ? { proposedBusiness: escolha.negocio } : { proposedCategory: escolha.categoria };
   const existente = await prisma.inboxMessage.findUnique({
     where: { channel_externalId: { channel: 'WHATSAPP', externalId: msg.externalId } },
     select: { id: true },
@@ -326,14 +354,14 @@ export async function registrarEscolha(
         status: 'REJECTED',
         proposedDate: msg.receivedAt,
         confidence: 1,
-        reason: `Resposta à pergunta de negócio: ${negocio}`,
+        reason: `Resposta na conversa: ${rotulo}`,
       },
     }),
     prisma.inboxMessage.updateMany({
       // `updateMany` com o userId no filtro: um id sozinho viria da
       // mensagem, e mensagem é entrada de fora.
       where: { id: propostaId, userId },
-      data: { proposedBusiness: negocio },
+      data: campo,
     }),
   ]);
 

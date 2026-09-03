@@ -363,6 +363,39 @@ Não é menu interativo do WhatsApp de propósito. Aquele exige template
 aprovado e cobra três toques para registrar uma despesa — mata a velocidade
 que faz o canal valer. Um menu em texto custa zero e pode ser ignorado.
 
+### Duas perguntas, em dois passos
+
+Depois do negócio vem a categoria — mas **só depois**. Juntar seis negócios
+com dezessete categorias numa mensagem só seria um paredão que ninguém lê.
+
+```
+você: paguei o fornecedor XYZ, 1.200
+app:  Entendi: saída de R$ 1.200,00 · fornecedor XYZ · 15/08
+      De qual negócio? 1 Unitedcom · 2 Cordex.AI · 3 Brand.co · ...
+
+você: 3
+app:  Anotado: Brand.co · R$ 1.200,00 · fornecedor XYZ
+      E a categoria? 1 Receita · 2 Impostos · 3 Folha e pró-labore · ...
+
+você: 4
+app:  Anotado: Fornecedores · R$ 1.200,00 · fornecedor XYZ
+```
+
+Qual pergunta está de pé é decidido pelo **estado da proposta** — sem
+negócio, é negócio; com negócio e sem categoria, é categoria. Não há
+contador de passos guardado em lugar nenhum, que dessincronizaria na
+primeira reentrega do Twilio.
+
+### O nome do arquivo não é legenda
+
+Anexo sem legenda faz o Twilio mandar o **nome do arquivo** no corpo.
+Tratado como legenda, ele virava descrição (`7172622995683306 pdf`) e seus
+dígitos entravam na disputa por "qual número é o valor" — foi de onde saiu
+o número que estourou a coluna e derrubou o webhook.
+
+Um token só, sem espaço, terminado em extensão conhecida não é legenda.
+`paguei o fornecedor XYZ, 1.200` e `boleto da luz` continuam sendo.
+
 ### O risco todo é confundir resposta com despesa
 
 `3` pode ser "Brand.co" ou "três reais". A regra é estreita e **erra para o

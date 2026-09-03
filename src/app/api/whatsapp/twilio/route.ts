@@ -4,11 +4,15 @@ import { lerAllowlist, numeroAutorizado } from '@/core/whatsapp/seguranca';
 import { assinaturaTwilioConfere, converterTwilio, urlPublica } from '@/core/whatsapp/twilio';
 import {
   contextoDaResposta,
+  propostaEsperandoCategoria,
   propostaEsperandoNegocio,
   registrarEscolha,
   registrarMensagem,
 } from '@/core/whatsapp/entrada';
-import { interpretarEscolhaDeNegocio } from '@/core/whatsapp/escolha';
+import {
+  interpretarEscolhaDeCategoria,
+  interpretarEscolhaDeNegocio,
+} from '@/core/whatsapp/escolha';
 import { nomesDeNegocio } from '@/core/triage/negocios-dados';
 import { montarResposta, respostaDeEscolha } from '@/core/whatsapp/resposta';
 import { enriquecerMidia } from '@/core/whatsapp/enriquecer';
@@ -134,17 +138,27 @@ export async function POST(request: NextRequest) {
     // A lista vem do banco: o menu numerado precisa refletir o que voce
     // cadastrou, e "3" tem de significar o terceiro de HOJE.
     const negocios = await nomesDeNegocio(usuario.id);
-    const escolha = mensagem.text ? interpretarEscolhaDeNegocio(mensagem.text, negocios) : undefined;
-    if (escolha) {
-      const pendente = await propostaEsperandoNegocio(usuario.id, mensagem.fromNumber);
-      if (pendente) {
-        const { duplicada } = await registrarEscolha(usuario.id, mensagem, pendente.id, escolha);
+    if (mensagem.text) {
+      // Qual pergunta esta de pe e decidido pelo ESTADO da proposta, e nao
+      // por um contador de passos — que dessincronizaria na primeira
+      // reentrega. Negocio primeiro; categoria depois que ele existe.
+      const negocio = interpretarEscolhaDeNegocio(mensagem.text, negocios);
+      const semNegocio = negocio ? await propostaEsperandoNegocio(usuario.id, mensagem.fromNumber) : null;
+
+      const categoria = interpretarEscolhaDeCategoria(mensagem.text);
+      const semCategoria =
+        !semNegocio && categoria ? await propostaEsperandoCategoria(usuario.id, mensagem.fromNumber) : null;
+
+      const alvo = semNegocio ?? semCategoria;
+      if (alvo) {
+        const escolhido = semNegocio ? { negocio: negocio! } : { categoria: categoria! };
+        const { duplicada } = await registrarEscolha(usuario.id, mensagem, alvo.id, escolhido);
         if (duplicada) return resposta('duplicada: escolha ja registrada');
         return respostaComTexto(
-          respostaDeEscolha(escolha, {
-            amountCents: pendente.proposedAmountCents ?? undefined,
-            descricao: pendente.proposedDescription ?? undefined,
-          }),
+          respostaDeEscolha(semNegocio ? negocio! : categoria!, {
+            amountCents: alvo.proposedAmountCents ?? undefined,
+            descricao: alvo.proposedDescription ?? undefined,
+          }, semNegocio ? 'categoria' : undefined),
           'escolha anotada',
         );
       }

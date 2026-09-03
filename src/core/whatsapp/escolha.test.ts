@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { interpretarEscolhaDeNegocio, menuDeNegocios } from './escolha';
+import {
+  interpretarEscolhaDeCategoria,
+  interpretarEscolhaDeNegocio,
+  menuDeCategorias,
+  menuDeNegocios,
+  pareceNomeDeArquivo,
+} from './escolha';
 
 const escolha = interpretarEscolhaDeNegocio;
 
@@ -73,5 +79,55 @@ describe('menuDeNegocios', () => {
     // A ordem do menu E a ordem do indice: se divergirem, "3" anota errado.
     const terceiro = menu.split(' · ')[2];
     expect(terceiro).toBe(`3 ${escolha('3')}`);
+  });
+});
+
+describe('pareceNomeDeArquivo — anexo sem legenda manda o NOME no corpo', () => {
+  it('reconhece o nome que o Twilio gera', () => {
+    // Tratado como legenda, virava descricao "7172622995683306 pdf" e seus
+    // digitos entravam na disputa por "qual numero e o valor" — foi de onde
+    // saiu o numero que estourou a coluna.
+    expect(pareceNomeDeArquivo('7172622995683306.pdf')).toBe(true);
+    expect(pareceNomeDeArquivo('IMG_20260903_075812.jpg')).toBe(true);
+    expect(pareceNomeDeArquivo('audio.ogg')).toBe(true);
+  });
+
+  it('legenda de verdade NAO e confundida com nome de arquivo', () => {
+    for (const t of [
+      'paguei o fornecedor XYZ, 1.200',
+      'boleto da luz',
+      'segue o comprovante',
+      'nota fiscal 2026',
+      '1.200',
+    ]) {
+      expect(pareceNomeDeArquivo(t)).toBe(false);
+    }
+  });
+
+  it('extensao desconhecida nao conta', () => {
+    expect(pareceNomeDeArquivo('coisa.xyz')).toBe(false);
+  });
+});
+
+describe('interpretarEscolhaDeCategoria', () => {
+  it('numero e nome da categoria', () => {
+    expect(interpretarEscolhaDeCategoria('4')).toBe('Fornecedores');
+    expect(interpretarEscolhaDeCategoria('fornecedores')).toBe('Fornecedores');
+    expect(interpretarEscolhaDeCategoria('marketing')).toBe('Marketing');
+  });
+
+  it('aceita ate o 17, que e o tamanho da lista', () => {
+    expect(interpretarEscolhaDeCategoria('17')).toBe('Outros');
+    expect(interpretarEscolhaDeCategoria('18')).toBeUndefined();
+  });
+
+  it('despesa continua nao sendo resposta', () => {
+    expect(interpretarEscolhaDeCategoria('paguei 4')).toBeUndefined();
+    expect(interpretarEscolhaDeCategoria('R$ 4')).toBeUndefined();
+  });
+
+  it('o menu numera na mesma ordem que a leitura', () => {
+    const menu = menuDeCategorias();
+    expect(menu.split(' · ')[3]).toBe(`4 ${interpretarEscolhaDeCategoria('4')}`);
   });
 });
