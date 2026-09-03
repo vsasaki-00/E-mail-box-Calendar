@@ -118,6 +118,40 @@ de uma foto seria pior que não ler. Foto e áudio caem numa seção separada
 ("chegaram, mas não deu para ler"), com o motivo escrito. Se você quer que
 uma foto vire lançamento, mande o valor junto na legenda.
 
+## A resposta tem de ser TwiML, nunca JSON
+
+**Encontrado só contra o provedor real**, e é a lição desta fase. A rota
+respondia `application/json` com contagens; o Twilio recusa isso num webhook
+de mensagem com o erro **12300** (`Invalid Content-Type: application/json
+supplied`). A mensagem entrava no app do mesmo jeito — mas cada uma virava
+um alarme no console, e um canal que grita a cada mensagem é um canal que
+ninguém olha.
+
+Toda resposta da rota agora é um `<Response>` vazio, que diz exatamente o
+que queremos dizer: **recebi, e não tenho nada a responder**. O Meridiano
+nunca manda mensagem de volta.
+
+O desfecho vai num **comentário XML** dentro do `Response`. Comentário é
+ignorado por qualquer parser de TwiML e aparece inteiro no inspetor de
+requisição do Twilio — o único lugar onde dá para ver o que aconteceu com
+uma mensagem recusada, que de propósito não deixa registro no banco:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?><Response><!-- recusada: numero fora da allowlist --></Response>
+```
+
+Nunca o texto da mensagem, só o desfecho.
+
+**E nenhum erro pode escapar sem content-type.** Com o banco fora, a rota
+estourava e o runtime devolvia 500 **sem** `Content-Type` — que o Twilio
+registra como *502 Bad Gateway*, um sintoma que aponta para o lugar errado.
+Agora a parte que toca o banco fica dentro de um `try`, e a falha vira 500
+**com** TwiML: o Twilio reentrega, que é o certo para falha passageira.
+
+A recusa por allowlist foi movida para **antes** do banco. Assim ela
+continua funcionando mesmo com o banco fora, e quem não está na lista não
+gasta consulta.
+
 ## Reentrega e idempotência
 
 Os dois provedores **reentregam** o que não recebe 200. Por isso:
@@ -185,6 +219,20 @@ verdade: sem assinatura, com token errado, **assinada contra outra URL**
 legenda (vira `FAILED`, sem proposta), e PDF com legenda com valor (vira
 proposta de R$ 2.000 de entrada).
 
-**Não verificado nos dois**: a chamada real do provedor. Nem conta Twilio
-nem conta business existem neste ambiente; o que foi exercitado é cada
-webhook recebendo exatamente o formato que o provedor documenta.
+**Depois, contra o Twilio de verdade** — e foi ele que achou o que os
+testes não achariam: o erro **12300** pela resposta em JSON. Os testes
+liam a resposta como um cliente HTTP qualquer, e para um cliente HTTP
+qualquer JSON está ótimo; só o Twilio se importa. Vale registrar como
+regra: *o formato da RESPOSTA a um provedor só se verifica contra o
+provedor*.
+
+Depois do conserto, quatro comportamentos conferidos com o
+`MessagingServiceSid` no corpo (o parâmetro que o Messaging Service
+acrescenta): assinatura inválida, registro, reentrega e número de fora —
+os quatro devolvendo `text/xml`. E, com o **banco derrubado de propósito**,
+500 com TwiML para o número válido e 200 para o de fora, provando que a
+recusa não depende do banco.
+
+**Continua não verificado**: a Cloud API da Meta contra o provedor real —
+não existe conta business neste ambiente. O caminho do Twilio é o que está
+em uso.

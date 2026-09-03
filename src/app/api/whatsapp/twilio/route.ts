@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { lerAllowlist, numeroAutorizado } from '@/core/whatsapp/seguranca';
 import { assinaturaTwilioConfere, converterTwilio, urlPublica } from '@/core/whatsapp/twilio';
 import { registrarMensagem } from '@/core/whatsapp/entrada';
+import { CABECALHOS_TWIML, twimlVazio } from '@/core/whatsapp/twiml';
 
 /**
  * Webhook do Twilio (BSP homologado). Ver docs/11-whatsapp.md
@@ -18,6 +19,18 @@ import { registrarMensagem } from '@/core/whatsapp/entrada';
 
 export const maxDuration = 30;
 export const dynamic = 'force-dynamic';
+
+/**
+ * Toda resposta desta rota e TwiML, nunca JSON.
+ *
+ * O Twilio recusa `application/json` num webhook de mensagem com o erro
+ * 12300, e cada mensagem viraria um alarme no console. A nota vai num
+ * comentario XML: e o unico lugar onde da para ver o que aconteceu com uma
+ * mensagem recusada, que de proposito nao deixa registro no banco.
+ */
+function resposta(nota?: string, status = 200) {
+  return new NextResponse(twimlVazio(nota), { status, headers: CABECALHOS_TWIML });
+}
 
 /**
  * GET: alguem abriu a URL no navegador.
@@ -52,7 +65,7 @@ export function GET() {
 export async function POST(request: NextRequest) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!authToken) {
-    return NextResponse.json({ error: 'TWILIO_AUTH_TOKEN não configurado' }, { status: 503 });
+    return resposta('TWILIO_AUTH_TOKEN nao configurado', 503);
   }
 
   let form: FormData;
@@ -61,7 +74,7 @@ export async function POST(request: NextRequest) {
   } catch {
     // Corpo ilegivel: 200 para o Twilio nao reentregar para sempre algo
     // que nunca vai melhorar.
-    return NextResponse.json({ ok: true, ignoradas: 'corpo ilegível' });
+    return resposta('ignorada: corpo ilegivel');
   }
 
   const params: Record<string, string> = {};
@@ -72,24 +85,36 @@ export async function POST(request: NextRequest) {
   // A URL tem de ser a que o Twilio chamou, nao a interna da funcao.
   const url = urlPublica(request, '/api/whatsapp/twilio');
   if (!assinaturaTwilioConfere(url, params, request.headers.get('x-twilio-signature'), authToken)) {
-    return NextResponse.json({ error: 'Assinatura inválida' }, { status: 403 });
+    return resposta('assinatura invalida', 403);
   }
-
-  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
-  if (!usuario) return NextResponse.json({ ok: true, ignoradas: 'sem usuário' });
 
   const mensagem = converterTwilio(params);
-  if (!mensagem) return NextResponse.json({ ok: true, ignoradas: 'sem mensagem no corpo' });
+  if (!mensagem) return resposta('ignorada: sem mensagem no corpo');
 
-  // Numero de fora: descarta em silencio. Nao registra, nao responde, nao
-  // conta a quem mandou o que aconteceu.
+  // Numero de fora: descarta em silencio, ANTES de tocar o banco. Nao
+  // registra, nao responde, nao conta a quem mandou o que aconteceu — e nao
+  // deixa quem nao esta na lista gastar consulta.
   if (!numeroAutorizado(mensagem.fromNumber, lerAllowlist(process.env.WHATSAPP_ALLOWED_NUMBERS))) {
-    return NextResponse.json({ ok: true, registradas: 0, recusadas: 1 });
+    return resposta('recusada: numero fora da allowlist');
   }
 
-  const r = await registrarMensagem(usuario.id, mensagem);
-  if (!r.ok) return NextResponse.json({ error: r.erro }, { status: 500 });
+  // Daqui para baixo tudo toca o banco, e uma falha de banco NAO pode
+  // escapar: um erro nao tratado vira 500 sem content-type, que o Twilio
+  // registra como 502 Bad Gateway — um sintoma que aponta para o lugar
+  // errado. Com 500 e TwiML, o Twilio reentrega, que e o certo para uma
+  // falha passageira.
+  try {
+    const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+    if (!usuario) return resposta('ignorada: sem usuario');
 
-  // So contagens. Nunca o texto da mensagem.
-  return NextResponse.json({ ok: true, registradas: r.duplicada ? 0 : 1, duplicadas: r.duplicada ? 1 : 0 });
+    const r = await registrarMensagem(usuario.id, mensagem);
+    if (!r.ok) return resposta('falha ao registrar', 500);
+
+    // So o desfecho. Nunca o texto da mensagem.
+    return resposta(r.duplicada ? 'duplicada: ja registrada' : 'registrada');
+  } catch {
+    // Sem detalhe do erro na resposta: ela sai para fora do app. O motivo
+    // fica no log da funcao, onde nao vaza.
+    return resposta('erro temporario', 500);
+  }
 }
