@@ -58,16 +58,30 @@ export function normalizarNumero(bruto: string): string {
  */
 function variantes(numero: string): string[] {
   const n = normalizarNumero(numero);
-  const lista = [n];
-  // 55 + DDD(2) + 9 + 8 dígitos = 13
-  if (n.length === 13 && n.startsWith('55') && n[4] === '9') {
-    lista.push(`${n.slice(0, 4)}${n.slice(5)}`);
+  const lista = new Set([n]);
+
+  // Sem código de país: é assim que uma pessoa escreve o PRÓPRIO número
+  // ("11 98765-4321"). O provedor sempre manda com o 55, então sem esta
+  // forma a allowlist do dono nunca casaria com ele mesmo — e o sintoma é
+  // o pior possível: descarte em silêncio, sem rastro em lugar nenhum.
+  // Só acrescenta o 55; não tira, para não transformar um número
+  // estrangeiro de 10 dígitos em brasileiro.
+  const semPais = (n.length === 10 || n.length === 11) && !n.startsWith('55');
+  const base = semPais ? [`55${n}`] : [n];
+  for (const b of base) lista.add(b);
+
+  for (const b of base) {
+    // 55 + DDD(2) + 9 + 8 dígitos = 13 → também sem o nono
+    if (b.length === 13 && b.startsWith('55') && b[4] === '9') {
+      lista.add(`${b.slice(0, 4)}${b.slice(5)}`);
+    }
+    // 55 + DDD(2) + 8 dígitos = 12 → acrescenta o nono
+    if (b.length === 12 && b.startsWith('55')) {
+      lista.add(`${b.slice(0, 4)}9${b.slice(4)}`);
+    }
   }
-  // 55 + DDD(2) + 8 dígitos = 12 → acrescenta o 9
-  if (n.length === 12 && n.startsWith('55')) {
-    lista.push(`${n.slice(0, 4)}9${n.slice(4)}`);
-  }
-  return lista;
+
+  return [...lista];
 }
 
 /** Lê `WHATSAPP_ALLOWED_NUMBERS` (separada por vírgula) já normalizada. */

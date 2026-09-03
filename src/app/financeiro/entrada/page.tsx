@@ -95,8 +95,26 @@ export default async function PaginaEntrada() {
       ) : (
         <p className="sub" style={{ marginBottom: 16, fontSize: 12 }}>
           Canal ligado via <strong>{provedor}</strong>, aceitando{' '}
-          {allowlist.length === 1 ? '1 número' : `${allowlist.length} números`}.
-          {jaLancadas > 0 && ` ${jaLancadas} mensagem(ns) já viraram lançamento.`}
+          {allowlist.length === 1 ? 'o número' : 'os números'}{' '}
+          {/* Mostrar QUAIS, e não só quantos: mensagem de número de fora é
+              descartada em silêncio, de propósito, e sem este número na tela
+              a configuração errada não deixa rastro em lugar nenhum. É o seu
+              próprio número, atrás da sua senha. */}
+          {allowlist.map((numero, i) => (
+            <span key={numero}>
+              {i > 0 && ', '}
+              <code>{numero}</code>
+            </span>
+          ))}
+          .{' '}
+          {jaLancadas > 0 &&
+            (jaLancadas === 1
+              ? '1 mensagem já virou lançamento. '
+              : `${jaLancadas} mensagens já viraram lançamento. `)}
+          <br />
+          Mensagem de qualquer outro número é descartada sem deixar rastro. Se você mandou e nada
+          apareceu aqui, o primeiro suspeito é este número não ser exatamente o seu, com o código
+          do país.
         </p>
       )}
 

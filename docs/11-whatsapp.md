@@ -70,6 +70,17 @@ O nono dígito é tratado: os provedores às vezes entregam `551187654321` e
 allowlist umas vezes sim, outras não — um bug que só aparece em produção e
 parece aleatório.
 
+**O código do país também.** O provedor sempre manda com o `55`; uma pessoa
+escreve o próprio número sem ele (`11 98765-4321`). Sem aceitar as duas
+formas, a allowlist do dono não casaria com o dono — e o sintoma é o pior
+possível: descarte em silêncio, sem rastro em lugar nenhum. O `55` é
+**acrescentado**, nunca removido: tirar transformaria um número estrangeiro
+de 10 dígitos em brasileiro.
+
+E é por isso que `/financeiro/entrada` mostra **quais** números aceita, e
+não só quantos. Uma recusa silenciosa que não deixa rastro precisa, no
+mínimo, que a configuração esteja visível do lado de cá.
+
 ## Nada vira lançamento sozinho
 
 A mensagem chega, é interpretada, e vira **proposta** em
