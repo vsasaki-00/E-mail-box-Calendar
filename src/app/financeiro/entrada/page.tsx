@@ -49,7 +49,12 @@ export default async function PaginaEntrada() {
     prisma.inboxMessage.count({ where: { userId: usuario.id, status: 'ACCEPTED' } }),
   ]);
 
-  const configurado = Boolean(process.env.WHATSAPP_APP_SECRET && process.env.WHATSAPP_VERIFY_TOKEN);
+  // Dois caminhos oficiais, e basta UM. Twilio é BSP homologado pela Meta;
+  // a Cloud API é a Meta direto. O núcleo não sabe de qual veio.
+  const viaTwilio = Boolean(process.env.TWILIO_AUTH_TOKEN);
+  const viaMeta = Boolean(process.env.WHATSAPP_APP_SECRET && process.env.WHATSAPP_VERIFY_TOKEN);
+  const configurado = viaTwilio || viaMeta;
+  const provedor = viaTwilio ? 'Twilio' : viaMeta ? 'Cloud API da Meta' : null;
   const allowlist = lerAllowlist(process.env.WHATSAPP_ALLOWED_NUMBERS);
   const propostas = mensagens.filter((m) => m.status === 'PROPOSED');
   const semProposta = mensagens.filter((m) => m.status !== 'PROPOSED');
@@ -69,9 +74,10 @@ export default async function PaginaEntrada() {
       {!configurado ? (
         <div className="aviso" style={{ marginBottom: 16 }}>
           <p>
-            <strong>O canal ainda não está ligado.</strong> Faltam{' '}
-            <code>WHATSAPP_APP_SECRET</code> e <code>WHATSAPP_VERIFY_TOKEN</code> nas variáveis de
-            ambiente. O passo a passo está em <code>docs/11-whatsapp.md</code>.
+            <strong>O canal ainda não está ligado.</strong> Basta um dos dois caminhos:{' '}
+            <code>TWILIO_AUTH_TOKEN</code> (se você usa Twilio) ou{' '}
+            <code>WHATSAPP_APP_SECRET</code> + <code>WHATSAPP_VERIFY_TOKEN</code> (Cloud API da
+            Meta). O passo a passo está em <code>docs/11-whatsapp.md</code>.
           </p>
           <p className="sub">
             Enquanto isso, <strong>encaminhar o comprovante para uma das caixas conectadas</strong>{' '}
@@ -88,7 +94,7 @@ export default async function PaginaEntrada() {
         </div>
       ) : (
         <p className="sub" style={{ marginBottom: 16, fontSize: 12 }}>
-          Canal ligado, aceitando {allowlist.length} número(s).
+          Canal ligado via <strong>{provedor}</strong>, aceitando {allowlist.length} número(s).
           {jaLancadas > 0 && ` ${jaLancadas} mensagem(ns) já viraram lançamento.`}
         </p>
       )}

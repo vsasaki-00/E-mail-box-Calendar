@@ -26,6 +26,8 @@ const PUBLICO = [
   // assinatura HMAC do corpo (App Secret) e por allowlist de número —
   // mesma lógica dos callbacks acima, que também não têm sessão.
   '/api/whatsapp/webhook',
+  // Twilio: mesma lógica, assinatura HMAC-SHA1 com o Auth Token.
+  '/api/whatsapp/twilio',
 ];
 
 export async function middleware(request: NextRequest) {

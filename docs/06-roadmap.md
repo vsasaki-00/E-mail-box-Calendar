@@ -267,13 +267,14 @@ Entregue:
 - **7C** — `/financeiro/analise`: fluxo mês a mês, por negócio,
   previsibilidade da receita, recorrentes e **torneira vazando**.
 
-- **7A** — entrada por WhatsApp pela Cloud API da Meta: webhook com
-  assinatura HMAC e allowlist de número, interpretação da frase em
-  proposta, e tela `/financeiro/entrada` onde você confirma. Detalhes em
-  [`11-whatsapp.md`](11-whatsapp.md). **Não verificado contra a Meta real**
-  — depende de conta business verificada e número dedicado, que não existem
-  neste ambiente; o que foi testado é o webhook recebendo o formato de
-  payload documentado.
+- **7A** — entrada por WhatsApp, por **dois** caminhos oficiais: Twilio
+  (BSP homologado) e Cloud API da Meta. Cada um com sua assinatura, os dois
+  com allowlist de número, e o mesmo núcleo depois: a frase vira proposta e
+  você confirma em `/financeiro/entrada`. Detalhes em
+  [`11-whatsapp.md`](11-whatsapp.md). **Não verificado contra provedor
+  real** — nem conta Twilio nem conta business existem neste ambiente; o
+  que foi exercitado é cada webhook recebendo o formato documentado, com
+  assinaturas calculadas de verdade.
 
 SQL de produção, nesta ordem: `prisma/fase7-extrato.sql`,
 `prisma/fase7-pdf.sql`, `prisma/fase7-regras.sql`,
