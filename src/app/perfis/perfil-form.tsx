@@ -3,7 +3,6 @@
 import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  BUSINESS_CONTEXTS,
   BUSINESS_DEFAULTS,
   isBusinessContext,
   type BusinessContext,
@@ -66,7 +65,7 @@ const campo = {
 
 const rotulo = { fontSize: 12, color: 'var(--muted)' } as const;
 
-export function PerfilForm({ inicial }: { inicial: PerfilInicial }) {
+export function PerfilForm({ inicial, negocios }: { inicial: PerfilInicial; negocios: readonly string[] }) {
   const router = useRouter();
   const [estado, acao, enviando] = useActionState<SalvarPerfilResultado | null, FormData>(
     salvarPerfil.bind(null, inicial.connectionId),
@@ -176,7 +175,7 @@ export function PerfilForm({ inicial }: { inicial: PerfilInicial }) {
             style={campo}
           >
             <option value="">— selecione —</option>
-            {BUSINESS_CONTEXTS.map((contexto) => (
+            {negocios.map((contexto) => (
               <option key={contexto} value={contexto}>
                 {contexto}
                 {contexto === 'Brand.co' ? ' (palestras/treinamentos)' : ''}

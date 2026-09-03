@@ -13,8 +13,8 @@ import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
  */
 
 /** Menu numerado, para caber numa linha de WhatsApp. */
-export function menuDeNegocios(): string {
-  return BUSINESS_CONTEXTS.map((nome, i) => `${i + 1} ${nome}`).join(' · ');
+export function menuDeNegocios(contextos: readonly string[] = BUSINESS_CONTEXTS): string {
+  return contextos.map((nome, i) => `${i + 1} ${nome}`).join(' · ');
 }
 
 /** Sem acento, minúsculo, sem pontuação — para comparar nome digitado. */
@@ -36,7 +36,10 @@ const CHEIRA_A_LANCAMENTO = /\b(paguei|pago|gastei|comprei|recebi|entrou|caiu|tr
  * `unitedcom`). Devolve `undefined` para qualquer outra coisa — e aí a
  * mensagem segue o caminho normal, como despesa.
  */
-export function interpretarEscolhaDeNegocio(texto: string): string | undefined {
+export function interpretarEscolhaDeNegocio(
+  texto: string,
+  contextos: readonly string[] = BUSINESS_CONTEXTS,
+): string | undefined {
   const limpo = texto.trim();
 
   // Uma resposta de menu é curta. Uma frase longa é outra coisa, mesmo que
@@ -48,7 +51,7 @@ export function interpretarEscolhaDeNegocio(texto: string): string | undefined {
   // coisa depois do dígito.
   if (/^\d{1,2}$/.test(limpo)) {
     const n = Number(limpo);
-    return n >= 1 && n <= BUSINESS_CONTEXTS.length ? BUSINESS_CONTEXTS[n - 1] : undefined;
+    return n >= 1 && n <= contextos.length ? contextos[n - 1] : undefined;
   }
 
   const achatado = achatar(limpo);
@@ -56,9 +59,9 @@ export function interpretarEscolhaDeNegocio(texto: string): string | undefined {
 
   // Nome exato primeiro; só depois prefixo, e só quando ele identifica um
   // negócio SÓ. "Brand" resolve; um prefixo ambíguo não deve chutar.
-  const exato = BUSINESS_CONTEXTS.find((n) => achatar(n) === achatado);
+  const exato = contextos.find((n) => achatar(n) === achatado);
   if (exato) return exato;
 
-  const candidatos = BUSINESS_CONTEXTS.filter((n) => achatar(n).startsWith(achatado));
+  const candidatos = contextos.filter((n) => achatar(n).startsWith(achatado));
   return candidatos.length === 1 ? candidatos[0] : undefined;
 }

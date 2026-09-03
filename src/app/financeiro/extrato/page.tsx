@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/db';
 import { formatarValor } from '@/core/finance/format';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
-import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
+import { nomesDeNegocio } from '@/core/triage/negocios-dados';
 import { Nav } from '../../nav';
 import { BotaoDesfazerImportacao } from './desfazer-botao';
 import { ImportarExtrato } from './importar-form';
@@ -61,7 +61,7 @@ export default async function PaginaExtrato({
       : {}),
   };
 
-  const [contas, importacoes, lancamentos, totalNoPeriodo, somas, regras] = await Promise.all([
+  const [contas, importacoes, lancamentos, totalNoPeriodo, somas, regras, negocios] = await Promise.all([
     prisma.financialAccount.findMany({
       where: { userId: usuario.id, archived: false },
       orderBy: { createdAt: 'asc' },
@@ -87,6 +87,7 @@ export default async function PaginaExtrato({
       prisma.ledgerEntry.aggregate({ where: { ...filtro, amountCents: { lt: 0 } }, _sum: { amountCents: true } }),
     ]),
     prisma.categoryRule.findMany({ where: { userId: usuario.id }, orderBy: { createdAt: 'desc' } }),
+    nomesDeNegocio(usuario.id),
   ]);
   const entradas = somas[0]._sum.amountCents ?? 0;
   const saidas = somas[1]._sum.amountCents ?? 0;
@@ -115,7 +116,7 @@ export default async function PaginaExtrato({
         <h2>Importar extrato</h2>
         <ImportarExtrato
           contas={contas.map((c) => ({ id: c.id, label: c.label }))}
-          negocios={BUSINESS_CONTEXTS}
+          negocios={negocios}
         />
       </section>
 
@@ -158,7 +159,7 @@ export default async function PaginaExtrato({
                         kind: c.kind,
                         business: c.business,
                       }}
-                      negocios={BUSINESS_CONTEXTS}
+                      negocios={negocios}
                     />
                   </div>
                 </div>
@@ -301,7 +302,7 @@ export default async function PaginaExtrato({
                         categorySource={l.categorySource}
                         business={l.business}
                         categorias={CATEGORIAS}
-                        negocios={BUSINESS_CONTEXTS}
+                        negocios={negocios}
                       />
                     </td>
                     <td

@@ -56,6 +56,8 @@ export interface ContextoResposta {
    * depois.
    */
   perguntarNegocio?: boolean;
+  /** Os negócios de hoje, vindos do banco. Sem isto o menu ficaria fóssil. */
+  negocios?: readonly string[];
 }
 
 /** `15/08` — dia e mês bastam numa conversa sobre esta semana. */
@@ -137,7 +139,7 @@ export function montarResposta(ctx: ContextoResposta, timeZone = 'America/Sao_Pa
   if (ctx.perguntarNegocio) {
     linhas.push('');
     linhas.push(`De qual negócio? Responda o número — ou ignore.`);
-    linhas.push(menuDeNegocios());
+    linhas.push(menuDeNegocios(ctx.negocios));
   }
 
   linhas.push('');

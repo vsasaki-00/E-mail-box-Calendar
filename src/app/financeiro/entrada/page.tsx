@@ -2,8 +2,8 @@ import { prisma } from '@/lib/db';
 import { formatarValor } from '@/core/finance/format';
 import { DEFAULT_TIMEZONE, formatDateTime, isoDateInZone } from '@/core/time/zone';
 import { CATEGORIAS } from '@/core/finance/categorias';
-import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
 import { lerAllowlist } from '@/core/whatsapp/seguranca';
+import { nomesDeNegocio } from '@/core/triage/negocios-dados';
 import { Nav } from '../../nav';
 import { BotaoDescartar, PropostaForm } from './proposta-form';
 
@@ -35,7 +35,7 @@ export default async function PaginaEntrada() {
   }
   const tz = usuario.timezone || DEFAULT_TIMEZONE;
 
-  const [mensagens, contas, jaLancadas] = await Promise.all([
+  const [mensagens, contas, jaLancadas, negocios] = await Promise.all([
     prisma.inboxMessage.findMany({
       where: { userId: usuario.id, status: { in: ['PENDING', 'PROPOSED', 'FAILED'] } },
       orderBy: { receivedAt: 'desc' },
@@ -47,6 +47,7 @@ export default async function PaginaEntrada() {
       select: { id: true, label: true },
     }),
     prisma.inboxMessage.count({ where: { userId: usuario.id, status: 'ACCEPTED' } }),
+    nomesDeNegocio(usuario.id),
   ]);
 
   // Dois caminhos oficiais, e basta UM. Twilio é BSP homologado pela Meta;
@@ -159,7 +160,7 @@ export default async function PaginaEntrada() {
                 }}
                 contas={contas}
                 categorias={CATEGORIAS}
-                negocios={BUSINESS_CONTEXTS}
+                negocios={negocios}
               />
             </div>
           ))

@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/db';
 import { formatList } from '@/core/triage/businesses';
 import { PerfilForm, type PerfilInicial } from './perfil-form';
+import { Negocios, type NegocioNaTela } from './negocios';
+import { contarUsos, listarNegocios } from '@/core/triage/negocios-dados';
 import { Nav } from '../nav';
 
 /**
@@ -21,6 +23,20 @@ export default async function PaginaPerfis() {
         orderBy: { createdAt: 'asc' },
         include: { mailboxProfile: true },
       })
+    : [];
+
+  // Negocios com a contagem de uso: o numero e o que torna "renomear migra
+  // as linhas" verificavel, e o que decide se da para apagar.
+  const negocios: NegocioNaTela[] = usuario
+    ? await Promise.all(
+        (await listarNegocios(usuario.id, true)).map(async (n) => ({
+          id: n.id,
+          name: n.name,
+          system: n.system,
+          archived: n.archived,
+          usos: (await contarUsos(usuario.id, n.name)).total,
+        })),
+      )
     : [];
 
   const perfis: PerfilInicial[] = conexoes.map((conexao) => ({
@@ -52,6 +68,10 @@ export default async function PaginaPerfis() {
         </div>
       </header>
 
+      {/* Antes dos perfis: os negócios existem mesmo sem caixa conectada, e
+          é deles que os menus de toda a tela do financeiro se alimentam. */}
+      {negocios.length > 0 && <Negocios negocios={negocios} />}
+
       {conexoes.length === 0 ? (
         <div className="aviso">
           <p>
@@ -78,7 +98,11 @@ export default async function PaginaPerfis() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {perfis.map((perfil) => (
-              <PerfilForm key={perfil.connectionId} inicial={perfil} />
+              <PerfilForm
+                key={perfil.connectionId}
+                inicial={perfil}
+                negocios={negocios.filter((n) => !n.archived).map((n) => n.name)}
+              />
             ))}
           </div>
         </>

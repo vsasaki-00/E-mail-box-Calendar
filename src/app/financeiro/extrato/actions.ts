@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { FinancialAccountKind } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { isBusinessContext } from '@/core/triage/businesses';
+import { negocioValido } from '@/core/triage/negocios-dados';
 import { planejarExclusao, resumirPreservados } from '@/core/finance/extrato/desfazer';
 
 /**
@@ -38,7 +38,7 @@ export async function atualizarConta(
   if (!label) return { ok: false, erro: 'Dê um nome à conta' };
   if (label.length > 80) return { ok: false, erro: 'Nome longo demais (máx. 80)' };
   if (!TIPOS.includes(kind as FinancialAccountKind)) return { ok: false, erro: 'Tipo inválido' };
-  if (business && !isBusinessContext(business)) return { ok: false, erro: 'Negócio inválido' };
+  if (business && !(await negocioValido(usuario.id, business))) return { ok: false, erro: 'Negócio inválido' };
 
   const conta = await prisma.financialAccount.findFirst({
     where: { id: accountId, userId: usuario.id },

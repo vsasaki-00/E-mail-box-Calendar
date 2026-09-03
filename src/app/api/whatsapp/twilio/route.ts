@@ -9,6 +9,7 @@ import {
   registrarMensagem,
 } from '@/core/whatsapp/entrada';
 import { interpretarEscolhaDeNegocio } from '@/core/whatsapp/escolha';
+import { nomesDeNegocio } from '@/core/triage/negocios-dados';
 import { montarResposta, respostaDeEscolha } from '@/core/whatsapp/resposta';
 import { enriquecerComPdf } from '@/core/whatsapp/enriquecer';
 import { CABECALHOS_TWIML, twimlMensagem, twimlVazio } from '@/core/whatsapp/twiml';
@@ -130,7 +131,10 @@ export async function POST(request: NextRequest) {
     // Antes de tratar como despesa: isto e resposta a uma pergunta pendente?
     // A regra e estreita (numero do menu ou nome do negocio, sem verbo e sem
     // valor) e erra para o lado de tratar como despesa.
-    const escolha = mensagem.text ? interpretarEscolhaDeNegocio(mensagem.text) : undefined;
+    // A lista vem do banco: o menu numerado precisa refletir o que voce
+    // cadastrou, e "3" tem de significar o terceiro de HOJE.
+    const negocios = await nomesDeNegocio(usuario.id);
+    const escolha = mensagem.text ? interpretarEscolhaDeNegocio(mensagem.text, negocios) : undefined;
     if (escolha) {
       const pendente = await propostaEsperandoNegocio(usuario.id, mensagem.fromNumber);
       if (pendente) {
@@ -158,7 +162,7 @@ export async function POST(request: NextRequest) {
     // diria "nao consegui ler" sobre um boleto que acabou de ser lido.
     const doPdf = await enriquecerComPdf(r.id).catch(() => undefined);
 
-    const texto = await textoDeVolta(usuario.id, usuario.timezone, r.id, doPdf);
+    const texto = await textoDeVolta(usuario.id, usuario.timezone, r.id, doPdf, negocios);
     // So o desfecho na nota. Nunca o texto da mensagem que voce mandou.
     return texto ? respostaComTexto(texto, 'registrada') : resposta('registrada');
   } catch {
@@ -180,6 +184,7 @@ async function textoDeVolta(
   timezone: string | null,
   mensagemId: string,
   doPdf?: { cobranca?: { instrumento?: 'BOLETO' | 'PIX'; dvConfere?: boolean }; valorDaLegenda?: number },
+  negocios?: readonly string[],
 ) {
   try {
     const salva = await prisma.inboxMessage.findUnique({
@@ -216,6 +221,7 @@ async function textoDeVolta(
         // So pergunta quando ha proposta de verdade e o negocio esta em
         // aberto. Perguntar em cima de "nao achei valor" seria ruido.
         perguntarNegocio: Boolean(salva.proposedAmountCents) && !salva.proposedBusiness,
+        negocios,
         instrumento: doPdf?.cobranca?.instrumento,
         dvConfere: doPdf?.cobranca?.dvConfere,
         valorDaLegenda: doPdf?.valorDaLegenda,

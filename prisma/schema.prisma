@@ -99,12 +99,53 @@ model User {
   financialAccounts FinancialAccount[]
   statementImports  StatementImport[]
   ledgerEntries     LedgerEntry[]
-  categoryRules  CategoryRule[]
-  inboxMessages  InboxMessage[]
+  categoryRules     CategoryRule[]
+  inboxMessages     InboxMessage[]
+  businesses        Business[]
 }
 
 /// Uma conta conectada: uma caixa de e-mail e/ou um conjunto de calendarios
 /// de um provedor. E a entidade central do sistema.
+/// Um negocio seu. Ver docs/07-agente-de-triagem.md
+///
+/// Nasceu como lista fixa em codigo porque o NOME ENTRA NO PROMPT de
+/// triagem, e "Cordex.AI" e "cordex ai" produziriam contextos diferentes
+/// entre caixas que deveriam ser iguais. Virou tabela quando o dono
+/// precisou cadastrar sozinho — mas o cuidado continua: o nome e
+/// normalizado na entrada, e renomear MIGRA as linhas que ja o citam.
+///
+/// O negocio e gravado como TEXTO nas linhas (conta, lancamento, regra,
+/// perfil de caixa, proposta de WhatsApp), e nao por id. Trocar isso agora
+/// seria migrar cinco colunas de historico por elegancia; o preco real de
+/// manter texto e o rename, que esta resolvido em transacao.
+model Business {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Como aparece na tela e dentro do prompt.
+  name String
+
+  /// Ordem no menu — inclusive o numerado que o WhatsApp manda.
+  sortOrder Int @default(100)
+
+  /// `Outros` e `Pessoais` nao sao negocios: sao as regras de escape. Nao
+  /// se apagam nem se renomeiam, e `Pessoais` tem calibracao de triagem
+  /// propria (caixa pessoal aguenta filtro mais agressivo).
+  system Boolean @default(false)
+
+  /// Arquivado sai dos menus e continua explicando o historico. E o que
+  /// permite "parar de usar" sem apagar o passado.
+  archived Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, archived, sortOrder])
+}
+
 model Connection {
   id           String   @id @default(cuid())
   userId       String
@@ -991,8 +1032,8 @@ model LedgerEntry {
   /// e por isso ela carrega um contador de ocorrencia.
   fingerprint String
 
-  business String?
-  category String?
+  business       String?
+  category       String?
   /// Quem deu a categoria: USER (voce, neste lancamento), RULE (regra sua)
   /// ou HEURISTIC (palpite embutido). Regra sobrescreve heuristica; nada
   /// sobrescreve USER. Sem isto, o palpite e a sua correcao seriam
@@ -1077,7 +1118,7 @@ model InboxMessage {
   id     String @id @default(cuid())
   userId String
 
-  channel InboxChannel @default(WHATSAPP)
+  channel    InboxChannel @default(WHATSAPP)
   /// Id da mensagem no provedor. Webhook REENTREGA quando nao recebe 200 —
   /// sem esta unique, cada reentrega viraria uma proposta duplicada.
   externalId String
@@ -1108,8 +1149,8 @@ model InboxMessage {
   proposedCategory    String?
   proposedBusiness    String?
   /// 0..1, e o porque em texto — a tela mostra os dois.
-  confidence Float?
-  reason     String?
+  confidence          Float?
+  reason              String?
 
   /// O lancamento criado quando voce confirmou.
   ledgerEntryId String?

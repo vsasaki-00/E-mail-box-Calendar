@@ -966,3 +966,58 @@ com confiança baixa — **por caixa e opt-in**, porque corpo de e-mail de
 negócio saindo da infra tem implicação com cliente. A decisão é para depois
 de umas duas semanas de correções: aí dá para medir *quantas correções
 teriam sido evitadas lendo o corpo* em vez de decidir por intuição.
+
+## Cadastrar e renomear negócios
+
+Em **Perfis → Negócios**. Antes disso a lista vivia em código e mudar exigia
+deploy.
+
+A lista nasceu fixa por um motivo que não sumiu: **o nome entra no prompt de
+triagem**, e "Cordex.AI", "cordex ai" e "Cordex" produziriam contextos
+diferentes para o modelo entre caixas que deveriam ser iguais. A tabela não
+apaga esse risco — o nome é normalizado na entrada (espaço colapsado, ponta
+aparada) e a checagem de duplicado compara **sem acento, caixa nem
+pontuação**, então "brand co" colide com "Brand.co" e é recusado. Acento e
+maiúscula não são tocados: o nome é do dono, e normalizar demais apagaria a
+marca.
+
+### Renomear migra as linhas — é a razão da tela existir
+
+O negócio é gravado como **texto** em cinco lugares: conta financeira,
+lançamento, regra de categoria, perfil de caixa e proposta de WhatsApp.
+
+Uma tela ingênua trocaria só o nome no cadastro, e os registros antigos
+continuariam dizendo "Brand.co". O filtro por negócio passaria a devolver
+menos do que existe, **em silêncio** — você só descobriria ao estranhar um
+total. Aqui o rename atualiza as cinco colunas na mesma transação, e a
+contagem de uso fica visível na tela para a promessa ser verificável.
+
+Mudança só de caixa também migra: as linhas guardam o texto, e "Brand.CO"
+não casa com "Brand.co".
+
+### Apagar, arquivar e os dois que não saem
+
+| ação | quando |
+| --- | --- |
+| **apagar** | só com zero registros usando. Com histórico, apagar deixaria linhas apontando para um nome que não existe: some do menu e continua no dado, o pior dos dois mundos |
+| **arquivar** | sai dos menus, continua explicando o histórico |
+
+`Outros` e `Pessoais` não são negócios: são as regras de escape. Não se
+apagam nem se renomeiam, e `Pessoais` tem calibração de triagem própria
+(caixa pessoal aguenta filtro mais agressivo — é cheia de newsletter, e o
+custo de esconder uma é baixo).
+
+Os seis de sempre são criados na **primeira vez que a tela abre**, a partir
+da lista que estava em código. Ninguém abre num vazio que o próprio app
+causou.
+
+### Verificado
+
+Com histórico semeado nas cinco tabelas (1 conta, 12 lançamentos, 1 regra,
+1 perfil, 1 proposta), renomear `Brand.co` → `Brand Palestras` deixou o nome
+novo com **16 usos** e o antigo com **0**. Apagar um fixo, apagar com
+histórico e criar duplicado (`unitedcom` contra `Unitedcom`) foram recusados
+com a explicação certa.
+
+Banco: rode `prisma/fase8-negocios.sql` no Supabase. Cria tabela, então o
+aviso de RLS aparece: **"Run and enable RLS"**.

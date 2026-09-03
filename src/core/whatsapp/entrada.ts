@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { interpretarTexto } from './mensagem';
 import { categoriaHeuristica } from '@/core/finance/categorias';
 import { normalizarDescricao } from '@/core/finance/extrato/normalizar';
-import { isBusinessContext } from '@/core/triage/businesses';
+import { negocioValido } from '@/core/triage/negocios-dados';
 import { isCategoria } from '@/core/finance/categorias';
 
 /**
@@ -131,7 +131,9 @@ export async function aceitarProposta(
     return { ok: false, erro: 'Valor inválido' };
   }
   if (params.category && !isCategoria(params.category)) return { ok: false, erro: 'Categoria inválida' };
-  if (params.business && !isBusinessContext(params.business)) return { ok: false, erro: 'Negócio inválido' };
+  if (params.business && !(await negocioValido(params.userId, params.business))) {
+    return { ok: false, erro: 'Negócio inválido' };
+  }
 
   const descricao = params.descricao.trim() || '(sem descrição)';
   const assinado = params.direcao === 'SAIDA' ? -Math.abs(params.amountCents) : Math.abs(params.amountCents);

@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import type { TriageCalibration } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { isBusinessContext, parseList } from '@/core/triage/businesses';
+import { parseList } from '@/core/triage/businesses';
+import { negocioValido } from '@/core/triage/negocios-dados';
 
 /**
  * Salva o perfil de uma caixa. Ver docs/07-agente-de-triagem.md
@@ -31,7 +32,7 @@ export async function salvarPerfil(
   const businessNameBruto = String(form.get('businessName') ?? '').trim();
   // Vazio e valido (caixa ainda sem contexto definido); valor fora da lista
   // nao, porque o nome do negocio precisa ser consistente entre caixas.
-  if (businessNameBruto && !isBusinessContext(businessNameBruto)) {
+  if (businessNameBruto && !(await negocioValido(conexao.userId, businessNameBruto))) {
     return { ok: false, erro: 'Negócio inválido' };
   }
 

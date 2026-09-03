@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { categoriaHeuristica, chaveDeRegra, isCategoria } from './categorias';
-import { isBusinessContext } from '@/core/triage/businesses';
+import { negocioValido } from '@/core/triage/negocios-dados';
 
 /**
  * Categorias no razao: regras suas primeiro, palpites embutidos depois, e
@@ -127,7 +127,7 @@ export async function definirCategoria(params: DefinirParams): Promise<Resultado
   const category = params.category === undefined ? undefined : params.category || null;
   const business = params.business === undefined ? undefined : params.business || null;
   if (category && !isCategoria(category)) return { ok: false, erro: 'Categoria inválida' };
-  if (business && !isBusinessContext(business)) return { ok: false, erro: 'Negócio inválido' };
+  if (business && !(await negocioValido(params.userId, business))) return { ok: false, erro: 'Negócio inválido' };
 
   await prisma.ledgerEntry.update({
     where: { id: l.id },
