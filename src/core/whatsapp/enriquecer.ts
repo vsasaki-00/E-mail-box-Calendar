@@ -1,10 +1,12 @@
 import { prisma } from '@/lib/db';
 import { baixarMidiaTwilio } from './midia';
 import { lerCobrancaDePdf, type CobrancaDePdf } from './pdf-cobranca';
+import { lerComprovanteDeImagem } from './imagem';
 import { valorCabe } from './mensagem';
 
 /**
- * O PDF que chegou vira proposta. Ver docs/11-whatsapp.md
+ * O arquivo que chegou vira proposta — PDF ou imagem.
+ * Ver docs/11-whatsapp.md
  *
  * Etapa SEPARADA de `registrarMensagem` de propósito, e é o mesmo princípio
  * que já valia para o texto: **registrar o que chegou nunca falha por causa
@@ -27,7 +29,11 @@ function pareceDocumentoPdf(kind: string, mime: string | null): boolean {
   return (mime ?? '').toLowerCase().includes('pdf');
 }
 
-export async function enriquecerComPdf(
+function pareceImagem(kind: string, mime: string | null): boolean {
+  return kind === 'IMAGE' || (mime ?? '').toLowerCase().startsWith('image/');
+}
+
+export async function enriquecerMidia(
   mensagemId: string,
   agora = new Date(),
 ): Promise<ResultadoEnriquecimento | undefined> {
@@ -43,7 +49,9 @@ export async function enriquecerComPdf(
       status: true,
     },
   });
-  if (!msg?.mediaId || !pareceDocumentoPdf(msg.kind, msg.mediaMimeType)) return undefined;
+  const ehPdf = pareceDocumentoPdf(msg?.kind ?? '', msg?.mediaMimeType ?? null);
+  const ehImagem = pareceImagem(msg?.kind ?? '', msg?.mediaMimeType ?? null);
+  if (!msg?.mediaId || (!ehPdf && !ehImagem)) return undefined;
 
   const baixado = await baixarMidiaTwilio(msg.mediaId, {
     accountSid: process.env.TWILIO_ACCOUNT_SID,
@@ -52,12 +60,29 @@ export async function enriquecerComPdf(
   if (!baixado.ok) {
     await prisma.inboxMessage.update({
       where: { id: msg.id },
-      data: { errorMessage: `Não consegui ler o PDF: ${baixado.erro}` },
+      data: { errorMessage: `Não consegui ler o arquivo: ${baixado.erro}` },
     });
     return { cobranca: { motivo: baixado.erro } };
   }
 
-  const cobranca = await lerCobrancaDePdf(baixado.bytes, agora);
+  // O PDF é lido por aritmética (texto + dígito verificador); a imagem passa
+  // pelo modelo. São confianças diferentes, e a resposta diz qual foi.
+  const cobranca: CobrancaDePdf = ehPdf
+    ? await lerCobrancaDePdf(baixado.bytes, agora)
+    : await (async () => {
+        const foto = await lerComprovanteDeImagem(baixado.bytes, msg.mediaMimeType ?? baixado.contentType, agora);
+        return {
+          amountCents: foto.amountCents,
+          vencimento: foto.data,
+          descricao: foto.descricao,
+          instrumento: foto.dvConfere !== undefined ? ('BOLETO' as const) : undefined,
+          dvConfere: foto.dvConfere,
+          direcao: foto.direcao,
+          confianca: foto.confianca,
+          deFoto: true,
+          motivo: foto.motivo,
+        };
+      })();
 
   // Mesma trava do texto: uma linha digitável corrompida pode render um
   // número que a coluna não aceita, e gravar isso derruba o webhook.
@@ -81,15 +106,19 @@ export async function enriquecerComPdf(
       status: 'PROPOSED',
       proposedAmountCents: valorFinal,
       // Boleto e PIX são sempre saída: são coisa a pagar.
-      proposedDirection: 'SAIDA',
+      // Boleto e PIX sao sempre saida; uma foto pode ser comprovante de
+      // RECEBIMENTO, e forcar saida inverteria o sinal do seu caixa.
+      proposedDirection: cobranca.direcao ?? 'SAIDA',
       proposedDescription: msg.proposedDescription ?? cobranca.descricao ?? null,
       proposedDate: cobranca.vencimento ?? undefined,
       // Dígito verificador que fecha é o mais perto de certeza que este app
       // chega; frase digitada nunca passa de palpite bem informado.
-      confidence: cobranca.dvConfere ? 0.95 : 0.6,
-      reason: cobranca.dvConfere
-        ? `${cobranca.instrumento === 'PIX' ? 'PIX' : 'Boleto'} lido do PDF, dígitos conferem`
-        : `${cobranca.instrumento === 'PIX' ? 'PIX' : 'Boleto'} lido do PDF, dígitos não fecham`,
+      confidence: cobranca.confianca ?? (cobranca.dvConfere ? 0.95 : 0.6),
+      reason: cobranca.deFoto
+        ? `Lido de uma foto${cobranca.dvConfere ? ', dígitos conferem' : ''}`
+        : cobranca.dvConfere
+          ? `${cobranca.instrumento === 'PIX' ? 'PIX' : 'Boleto'} lido do PDF, dígitos conferem`
+          : `${cobranca.instrumento === 'PIX' ? 'PIX' : 'Boleto'} lido do PDF, dígitos não fecham`,
       errorMessage: null,
     },
   });

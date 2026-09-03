@@ -55,6 +55,8 @@ export interface ContextoResposta {
    * pergunta nunca bloqueia: ignorar é resposta válida, e o painel resolve
    * depois.
    */
+  /** Veio de uma foto: a fonte mais fraca que o app aceita. Nunca esconder. */
+  deFoto?: boolean;
   perguntarNegocio?: boolean;
   /** Os negócios de hoje, vindos do banco. Sem isto o menu ficaria fóssil. */
   negocios?: readonly string[];
@@ -117,7 +119,12 @@ export function montarResposta(ctx: ContextoResposta, timeZone = 'America/Sao_Pa
   // Confiança baixa não pode ser escondida: a proposta é palpite, e dizer
   // isso é o que permite você olhar com atenção em vez de confirmar no
   // automático.
-  if (ctx.confianca < 0.6) {
+  if (ctx.deFoto && ctx.dvConfere !== true) {
+    // Foto lida por modelo e a fonte mais fraca deste app: pior que uma
+    // frase que voce digitou, porque ali voce sabia o que quis dizer.
+    // Esconder isso faria voce confirmar no automatico.
+    linhas.push('_Li da foto — confira os campos antes de lançar._');
+  } else if (ctx.confianca < 0.6) {
     linhas.push('_Leitura incerta — confira os campos._');
   }
 

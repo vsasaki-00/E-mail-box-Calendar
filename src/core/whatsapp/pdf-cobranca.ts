@@ -24,6 +24,11 @@ export interface CobrancaDePdf {
   dvConfere?: boolean;
   /** Por que não deu, quando não deu. */
   motivo?: string;
+  /** Comprovante de recebimento existe: forçar saída inverteria o caixa. */
+  direcao?: 'ENTRADA' | 'SAIDA';
+  /** Quando quem leu foi o modelo, e não a aritmética. */
+  confianca?: number;
+  deFoto?: boolean;
 }
 
 /** Boleto costuma caber na primeira página; duas por folga, sem pagar caro. */

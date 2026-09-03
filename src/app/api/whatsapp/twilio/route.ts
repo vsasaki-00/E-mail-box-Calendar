@@ -11,7 +11,7 @@ import {
 import { interpretarEscolhaDeNegocio } from '@/core/whatsapp/escolha';
 import { nomesDeNegocio } from '@/core/triage/negocios-dados';
 import { montarResposta, respostaDeEscolha } from '@/core/whatsapp/resposta';
-import { enriquecerComPdf } from '@/core/whatsapp/enriquecer';
+import { enriquecerMidia } from '@/core/whatsapp/enriquecer';
 import { CABECALHOS_TWIML, twimlMensagem, twimlVazio } from '@/core/whatsapp/twiml';
 import { DEFAULT_TIMEZONE } from '@/core/time/zone';
 
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     // PDF vira proposta ANTES de montar a resposta: senao o texto de volta
     // diria "nao consegui ler" sobre um boleto que acabou de ser lido.
-    const doPdf = await enriquecerComPdf(r.id).catch(() => undefined);
+    const doPdf = await enriquecerMidia(r.id).catch(() => undefined);
 
     const texto = await textoDeVolta(usuario.id, usuario.timezone, r.id, doPdf, negocios);
     // So o desfecho na nota. Nunca o texto da mensagem que voce mandou.
@@ -183,7 +183,10 @@ async function textoDeVolta(
   userId: string,
   timezone: string | null,
   mensagemId: string,
-  doPdf?: { cobranca?: { instrumento?: 'BOLETO' | 'PIX'; dvConfere?: boolean }; valorDaLegenda?: number },
+  doPdf?: {
+    cobranca?: { instrumento?: 'BOLETO' | 'PIX'; dvConfere?: boolean; deFoto?: boolean };
+    valorDaLegenda?: number;
+  },
   negocios?: readonly string[],
 ) {
   try {
@@ -223,6 +226,7 @@ async function textoDeVolta(
         perguntarNegocio: Boolean(salva.proposedAmountCents) && !salva.proposedBusiness,
         negocios,
         instrumento: doPdf?.cobranca?.instrumento,
+        deFoto: doPdf?.cobranca?.deFoto,
         dvConfere: doPdf?.cobranca?.dvConfere,
         valorDaLegenda: doPdf?.valorDaLegenda,
         ...ctx,

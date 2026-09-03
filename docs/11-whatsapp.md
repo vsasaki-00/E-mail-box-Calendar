@@ -181,16 +181,63 @@ O ambiente de desenvolvimento derruba servidores de teste de longa duração,
 e a montagem com CA própria não chegou ao fim. As partes foram verificadas
 separadamente.
 
+## Foto de comprovante: o modelo transcreve, o dígito verificador confere
+
+A foto é lida — e a confiança dela depende de **haver ou não um código para
+conferir**. Essa é a ideia que faz leitura de imagem valer a pena aqui:
+
+| na foto | quem decide | confiança |
+| --- | --- | --- |
+| linha digitável legível | a **aritmética** do DV (mod10/mod11), a mesma que valida boleto de e-mail | 0,95 |
+| comprovante de PIX, recibo, cupom | o modelo | **0,7, no máximo** |
+
+Quando há linha digitável, o modelo só **transcreve os dígitos** — e o valor
+que vale é o do código, mesmo que o modelo tenha lido outro na foto tremida.
+Confiar no modelo ali seria jogar fora a única verificação real que este app
+tem.
+
+Sem código, sobra a leitura do modelo, e a resposta **diz isso**:
+
+```
+Entendi: saída de R$ 899,00 · Mercado Central · 01/09
+_Li da foto — confira os campos antes de lançar._
+```
+
+Foto é a fonte mais fraca que o app aceita — pior que uma frase que você
+digitou, porque ali você sabia o que quis dizer. Esconder isso faria você
+confirmar no automático.
+
+Três coisas que a leitura **não** faz:
+
+- **não inventa campo**: o que não aparece na imagem volta nulo;
+- **não força saída**: comprovante de recebimento é `ENTRADA`, e inverter
+  isso trocaria o sinal do seu caixa;
+- **não passa valor absurdo**: a mesma trava do texto vale aqui, porque um
+  número que o `Int` não aceita derrubaria o webhook.
+
+E as travas ficam **antes** da chamada: formato que a API não aceita,
+arquivo vazio e arquivo grande demais nem gastam uma chamada de modelo.
+Falta de `ANTHROPIC_API_KEY` vira "não consegui ler", nunca exceção — uma
+foto não pode derrubar o webhook, porque aí o Twilio reentregaria para
+sempre.
+
+**Não verificado**: a chamada real de visão. Não há chave de API neste
+ambiente, então o que foi exercitado é a **decisão** sobre a leitura — 15
+testes, incluindo o DV sobrepondo o valor do modelo, o DV quebrado não
+ganhando confiança, e recebimento não virando saída. A mesma ressalva que
+valia para o Twilio, e que já custou o erro 12300: **o que só se verifica
+contra o provedor, só se verifica contra o provedor.**
+
 ## Mídia: o que o app faz e o que não faz
 
 Foto de comprovante e PDF chegam e ficam **por referência** — o binário
 continua no WhatsApp, não no nosso banco. Guardar comprovante do dono aqui
 é assumir uma responsabilidade que este app não precisa ter.
 
-**O app não lê valor de imagem.** Não há OCR, e inventar um número a partir
-de uma foto seria pior que não ler. Foto e áudio caem numa seção separada
-("chegaram, mas não deu para ler"), com o motivo escrito. Se você quer que
-uma foto vire lançamento, mande o valor junto na legenda.
+**Correção de uma versão anterior**: esta seção dizia que o app não lê
+imagem. Ele lê — ver a seção acima. O que continua valendo é o resto: o
+binário fica no WhatsApp, e **áudio** ainda não é lido, porque transcrição
+exige um provedor que este projeto não usa.
 
 ## A resposta tem de ser TwiML, nunca JSON
 

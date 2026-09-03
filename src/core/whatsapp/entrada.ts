@@ -50,9 +50,9 @@ export async function registrarMensagem(
 
   const proposta = msg.text ? interpretarTexto(msg.text, msg.receivedAt) : undefined;
 
-  // Mídia sem texto: registra e espera por você. Ler foto de comprovante
-  // exigiria OCR, que este app não tem — e inventar valor a partir de uma
-  // imagem seria pior que não ler.
+  // Mídia sem texto: registra aqui e a leitura vem depois, em
+  // `enriquecerMidia` — PDF pela aritmética, imagem pelo modelo. Registrar
+  // nunca falha por causa da interpretação.
   const semTexto = !msg.text?.trim();
   const dados: Prisma.InboxMessageUncheckedCreateInput = {
     userId,
@@ -79,7 +79,7 @@ export async function registrarMensagem(
     errorMessage: proposta?.amountCents
       ? null
       : semTexto
-        ? 'Mídia sem legenda: não sei ler o valor de uma imagem. Escreva o valor numa mensagem, ou confira o arquivo no WhatsApp e lance à mão.'
+        ? 'Não consegui ler este arquivo. Escreva o valor numa mensagem, ou lance à mão pelo painel.'
         : 'Não achei um valor na mensagem.',
   };
 
