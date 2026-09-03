@@ -79,12 +79,23 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Tudo, menos os estáticos do Next e os ícones.
+  // Tudo, menos os estáticos do Next e os arquivos que o navegador pede
+  // ANTES de haver sessão.
   //
-  // `icon.svg` e `apple-icon.png` precisam ficar de fora: eles são pedidos
-  // pela TELA DE LOGIN, onde por definição ainda não há sessão. Dentro do
-  // portão, o navegador recebia um redirecionamento em vez da imagem e a
-  // aba ficava sem ícone justamente na primeira tela que você vê.
-  // Um ícone não carrega nada privado.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)'],
+  // `icon.svg` e `apple-icon.png`: pedidos pela TELA DE LOGIN, onde por
+  // definição ainda não há sessão. Dentro do portão, o navegador recebia um
+  // redirecionamento em vez da imagem e a aba ficava sem ícone justamente
+  // na primeira tela que você vê.
+  //
+  // O PWA acrescenta quatro: `manifest.webmanifest` e os ícones (lidos pelo
+  // navegador, às vezes sem enviar o cookie), `sw.js` (um service worker
+  // que responde redirecionamento nunca instala, e sem ele o navegador não
+  // oferece "instalar") e `offline.html` (que precisa abrir justamente
+  // quando não há rede para validar sessão nenhuma).
+  //
+  // Nenhum deles carrega conteúdo privado: são ícone, código e uma página
+  // que diz "sem conexão". Ver docs/12-pwa.md
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|manifest.webmanifest|sw.js|offline.html|icone-192.png|icone-512.png).*)',
+  ],
 };

@@ -246,8 +246,14 @@ Princípios inegociáveis desta fase:
 
 ## Fase 6 — Alcance e operação
 
-- App mobile ou PWA sobre a mesma API.
-- Push nativo (Gmail watch + Pub/Sub, Graph subscriptions) substituindo polling.
+- ✅ **PWA sobre a mesma API** — instala na tela inicial, mesma URL e mesma
+  sessão. O service worker **não guarda nada do que você lê**: cachear
+  e-mail de seis negócios no aparelho abriria sem senha num celular
+  perdido. Detalhes e a verificação do portão com as novas exclusões:
+  [`12-pwa.md`](12-pwa.md).
+- Push nativo (Gmail watch + Pub/Sub, Graph subscriptions) substituindo
+  polling. **Bloqueado em configuração externa** (projeto no Google Cloud +
+  tópico Pub/Sub), como o Twilio.
 - Notificações push para alertas críticos.
 - Observabilidade: métricas de sync, latência por provedor, alarmes operacionais.
 
