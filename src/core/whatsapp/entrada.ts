@@ -181,3 +181,78 @@ export async function rejeitarMensagem(userId: string, mensagemId: string): Prom
     data: { status: 'REJECTED' },
   });
 }
+
+/**
+ * O contexto que a resposta do WhatsApp carrega. Ver docs/11-whatsapp.md
+ *
+ * Três consultas curtas, todas dentro do webhook: um `<Message>` que chega
+ * um minuto depois não serve para nada. Se qualquer uma falhar, a resposta
+ * sai sem aquele pedaço — informação a menos é melhor que resposta nenhuma.
+ */
+export async function contextoDaResposta(
+  userId: string,
+  mensagemId: string,
+  proposta: { amountCents?: number; descricao?: string; data?: Date },
+  agora = new Date(),
+): Promise<{
+  parecido?: { quando: Date; descricao: string };
+  aVencer?: { quantas: number; totalCents: number; dias: number };
+  outrasPendentes: number;
+}> {
+  const DIAS_A_VENCER = 7;
+  const limite = new Date(agora.getTime() + DIAS_A_VENCER * 864e5);
+
+  const [parecidos, cobrancas, outrasPendentes] = await Promise.all([
+    // Mesmo valor, nos últimos 30 dias. Valor igual é o sinal barato e
+    // preciso: descrição a pessoa digita diferente toda vez, valor não.
+    proposta.amountCents
+      ? prisma.ledgerEntry.findMany({
+          where: {
+            userId,
+            amountCents: { in: [proposta.amountCents, -proposta.amountCents] },
+            postedAt: { gte: new Date(agora.getTime() - 30 * 864e5) },
+          },
+          orderBy: { postedAt: 'desc' },
+          take: 5,
+          select: { postedAt: true, description: true, normalized: true },
+        })
+      : Promise.resolve([]),
+    prisma.billExtraction.findMany({
+      where: {
+        userId,
+        status: 'PENDING',
+        isPayable: true,
+        dueDate: { gte: agora, lte: limite },
+        amountCents: { not: null },
+      },
+      select: { amountCents: true },
+    }),
+    prisma.inboxMessage.count({
+      where: { userId, status: { in: ['PENDING', 'PROPOSED'] }, id: { not: mensagemId } },
+    }),
+  ]);
+
+  // Valor igual sozinho gera alarme falso demais (aluguel, mensalidade). Só
+  // vira aviso quando a descrição também conversa — uma palavra de peso em
+  // comum basta, porque "FORNECEDOR XYZ LTDA" e "fornecedor XYZ" são a
+  // mesma coisa escrita por duas mãos.
+  const alvo = new Set(
+    normalizarDescricao(proposta.descricao ?? '')
+      .split(' ')
+      .filter((p) => p.length >= 4),
+  );
+  const parecido =
+    alvo.size > 0
+      ? parecidos.find((e) => e.normalized.split(' ').some((p) => alvo.has(p)))
+      : undefined;
+
+  return {
+    parecido: parecido ? { quando: parecido.postedAt, descricao: parecido.description } : undefined,
+    aVencer: {
+      quantas: cobrancas.length,
+      totalCents: cobrancas.reduce((s, c) => s + (c.amountCents ?? 0), 0),
+      dias: DIAS_A_VENCER,
+    },
+    outrasPendentes,
+  };
+}

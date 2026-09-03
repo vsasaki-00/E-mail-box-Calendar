@@ -152,6 +152,60 @@ A recusa por allowlist foi movida para **antes** do banco. Assim ela
 continua funcionando mesmo com o banco fora, e quem não está na lista não
 gasta consulta.
 
+## A resposta de volta
+
+O app responde na conversa — e **só isso** ele envia. Não há disparo de
+mensagem em nenhum outro lugar do código.
+
+Sem chamada de API, sem `TWILIO_ACCOUNT_SID`, sem credencial de envio: o
+Twilio já busca TwiML a cada mensagem, então responder é devolver
+`<Message>` na mesma resposta. O caminho mais curto é também o que tem menos
+peça para quebrar.
+
+**Uma resposta automática só se justifica se disser algo que você não
+sabia.** "Recebido ✓" é ruído com cara de educação. Então ela carrega três
+coisas, nessa ordem:
+
+1. **O que eu entendi.** Fecha o laço na hora: se o parser leu 1,20 em vez
+   de 1.200, você descobre agora, e não semanas depois no painel.
+2. **Parece repetido?** É o único momento em que dá para avisar **antes** de
+   o dinheiro sair de novo. Pagar duas vezes é o erro caro que este app tem
+   como evitar, e ninguém mais tem os dados para ver.
+3. **O que vence logo.** A informação que só este app tem — cobranças lidas
+   do e-mail — chegando justamente quando você está decidindo gastar.
+
+```
+Entendi: saída de R$ 1.200,00 · fornecedor XYZ · 15/08
+
+⚠️ Parecido com *FORNECEDOR XYZ LTDA* de 22/08, mesmo valor.
+   Veja se não é o mesmo pagamento.
+
+A vencer em 7 dias: R$ 4.200,00 em 2 cobranças.
+
+Confirme no painel — há mais 1 esperando. Nada foi lançado ainda.
+```
+
+O aviso de repetido exige **valor igual E uma palavra em comum** na
+descrição. Valor sozinho gera alarme falso demais — aluguel e mensalidade
+repetem todo mês de propósito.
+
+**Quando ela NÃO sai:**
+
+- **Número fora da allowlist**: nunca. Responder confirmaria a quem sondou
+  que o número existe e que há um app atrás. O silêncio é a resposta.
+- **Reentrega**: a resposta sai só no primeiro recebimento. O Twilio
+  reentrega o que não recebe 200, e responder de novo encheria a conversa de
+  mensagens iguais por um problema de rede.
+- **Falha ao montar o texto**: cai em silêncio. A mensagem já está salva;
+  um erro aqui faria o Twilio reentregar e a mensagem viraria duas.
+
+O caso mais importante é o que **não** tem valor: sem resposta, você acha
+que deu certo e a despesa some. Aí a resposta é o aviso, com exemplo — dizer
+"formato inválido" sem mostrar o formato certo é só reclamar.
+
+E o texto da mensagem é escapado antes de entrar no XML: um `&` na descrição
+de um fornecedor quebraria a resposta inteira.
+
 ## Reentrega e idempotência
 
 Os dois provedores **reentregam** o que não recebe 200. Por isso:

@@ -48,3 +48,32 @@ export const CABECALHOS_TWIML = {
   'content-type': 'text/xml; charset=utf-8',
   'cache-control': 'no-store',
 } as const;
+
+/**
+ * TwiML com uma resposta de volta na conversa.
+ *
+ * O Twilio já busca TwiML do app a cada mensagem, então responder é
+ * devolver `<Message>` aqui — sem chamada de API, sem credencial de envio,
+ * sem Account SID. O caminho mais curto é também o que tem menos peça para
+ * quebrar.
+ */
+export function twimlMensagem(texto: string, nota?: string): string {
+  const limpa = nota ? `<!-- ${nota.replace(/-{2,}/g, '-').replace(/[<>&]/g, ' ')} -->` : '';
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${limpa}<Message>${escaparXml(texto)}</Message></Response>`;
+}
+
+/**
+ * Escapa o texto para dentro de um nó XML.
+ *
+ * A mensagem é escrita pelo app, mas carrega pedaço do que VOCÊ digitou (a
+ * descrição). Um `&` ou `<` na descrição quebraria o XML e o Twilio
+ * recusaria a resposta inteira — trocando a resposta por um erro.
+ */
+function escaparXml(texto: string): string {
+  return texto
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}

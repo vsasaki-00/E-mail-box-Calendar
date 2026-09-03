@@ -2,8 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { lerAllowlist, numeroAutorizado } from '@/core/whatsapp/seguranca';
 import { assinaturaTwilioConfere, converterTwilio, urlPublica } from '@/core/whatsapp/twilio';
-import { registrarMensagem } from '@/core/whatsapp/entrada';
-import { CABECALHOS_TWIML, twimlVazio } from '@/core/whatsapp/twiml';
+import { contextoDaResposta, registrarMensagem } from '@/core/whatsapp/entrada';
+import { montarResposta } from '@/core/whatsapp/resposta';
+import { CABECALHOS_TWIML, twimlMensagem, twimlVazio } from '@/core/whatsapp/twiml';
+import { DEFAULT_TIMEZONE } from '@/core/time/zone';
 
 /**
  * Webhook do Twilio (BSP homologado). Ver docs/11-whatsapp.md
@@ -30,6 +32,17 @@ export const dynamic = 'force-dynamic';
  */
 function resposta(nota?: string, status = 200) {
   return new NextResponse(twimlVazio(nota), { status, headers: CABECALHOS_TWIML });
+}
+
+/**
+ * Resposta COM mensagem de volta na conversa.
+ *
+ * So no primeiro recebimento: o Twilio reentrega o que nao recebe 200, e
+ * responder de novo encheria a conversa de mensagens iguais por um problema
+ * de rede.
+ */
+function respostaComTexto(texto: string, nota: string) {
+  return new NextResponse(twimlMensagem(texto, nota), { status: 200, headers: CABECALHOS_TWIML });
 }
 
 /**
@@ -109,12 +122,64 @@ export async function POST(request: NextRequest) {
 
     const r = await registrarMensagem(usuario.id, mensagem);
     if (!r.ok) return resposta('falha ao registrar', 500);
+    // Reentrega nao responde de novo: seria a mesma mensagem duas vezes na
+    // conversa por causa de um problema de rede.
+    if (r.duplicada) return resposta('duplicada: ja registrada');
 
-    // So o desfecho. Nunca o texto da mensagem.
-    return resposta(r.duplicada ? 'duplicada: ja registrada' : 'registrada');
+    const texto = await textoDeVolta(usuario.id, usuario.timezone, r.id);
+    // So o desfecho na nota. Nunca o texto da mensagem que voce mandou.
+    return texto ? respostaComTexto(texto, 'registrada') : resposta('registrada');
   } catch {
     // Sem detalhe do erro na resposta: ela sai para fora do app. O motivo
     // fica no log da funcao, onde nao vaza.
     return resposta('erro temporario', 500);
+  }
+}
+
+/**
+ * Monta o texto de volta, ou nada.
+ *
+ * Falhar aqui NAO pode custar a mensagem: ela ja esta salva. Sem resposta o
+ * dono perde o aviso, mas com um erro aqui o Twilio reentregaria e a
+ * mensagem viraria duas. Por isso todo o bloco cai em silencio.
+ */
+async function textoDeVolta(userId: string, timezone: string | null, mensagemId: string) {
+  try {
+    const salva = await prisma.inboxMessage.findUnique({
+      where: { id: mensagemId },
+      select: {
+        proposedAmountCents: true,
+        proposedDirection: true,
+        proposedDescription: true,
+        proposedDate: true,
+        confidence: true,
+        errorMessage: true,
+        kind: true,
+      },
+    });
+    if (!salva) return undefined;
+
+    const proposta = {
+      amountCents: salva.proposedAmountCents ?? undefined,
+      descricao: salva.proposedDescription ?? undefined,
+      data: salva.proposedDate ?? undefined,
+    };
+    const ctx = await contextoDaResposta(userId, mensagemId, proposta);
+
+    return montarResposta(
+      {
+        ...proposta,
+        direcao: salva.proposedDirection === 'ENTRADA' ? 'ENTRADA' : 'SAIDA',
+        confianca: salva.confidence ?? 0,
+        // O motivo so vale a pena quando ele explica algo que a frase
+        // padrao nao explica — o caso de midia sem legenda. Para texto sem
+        // valor, "nao achei um valor" seria a mesma frase repetida.
+        motivoFalha: salva.kind !== 'TEXT' ? (salva.errorMessage ?? undefined) : undefined,
+        ...ctx,
+      },
+      timezone || DEFAULT_TIMEZONE,
+    );
+  } catch {
+    return undefined;
   }
 }
