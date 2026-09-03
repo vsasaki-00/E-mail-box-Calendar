@@ -2,8 +2,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { prisma } from '@/lib/db';
 import { lerAllowlist, numeroAutorizado } from '@/core/whatsapp/seguranca';
 import { assinaturaTwilioConfere, converterTwilio, urlPublica } from '@/core/whatsapp/twilio';
-import { contextoDaResposta, registrarMensagem } from '@/core/whatsapp/entrada';
-import { montarResposta } from '@/core/whatsapp/resposta';
+import {
+  contextoDaResposta,
+  propostaEsperandoNegocio,
+  registrarEscolha,
+  registrarMensagem,
+} from '@/core/whatsapp/entrada';
+import { interpretarEscolhaDeNegocio } from '@/core/whatsapp/escolha';
+import { montarResposta, respostaDeEscolha } from '@/core/whatsapp/resposta';
 import { enriquecerComPdf } from '@/core/whatsapp/enriquecer';
 import { CABECALHOS_TWIML, twimlMensagem, twimlVazio } from '@/core/whatsapp/twiml';
 import { DEFAULT_TIMEZONE } from '@/core/time/zone';
@@ -121,6 +127,27 @@ export async function POST(request: NextRequest) {
     const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
     if (!usuario) return resposta('ignorada: sem usuario');
 
+    // Antes de tratar como despesa: isto e resposta a uma pergunta pendente?
+    // A regra e estreita (numero do menu ou nome do negocio, sem verbo e sem
+    // valor) e erra para o lado de tratar como despesa.
+    const escolha = mensagem.text ? interpretarEscolhaDeNegocio(mensagem.text) : undefined;
+    if (escolha) {
+      const pendente = await propostaEsperandoNegocio(usuario.id, mensagem.fromNumber);
+      if (pendente) {
+        const { duplicada } = await registrarEscolha(usuario.id, mensagem, pendente.id, escolha);
+        if (duplicada) return resposta('duplicada: escolha ja registrada');
+        return respostaComTexto(
+          respostaDeEscolha(escolha, {
+            amountCents: pendente.proposedAmountCents ?? undefined,
+            descricao: pendente.proposedDescription ?? undefined,
+          }),
+          'escolha anotada',
+        );
+      }
+      // Sem pergunta de pe, um numero solto volta a ser o que sempre foi:
+      // uma mensagem sem valor reconhecivel.
+    }
+
     const r = await registrarMensagem(usuario.id, mensagem);
     if (!r.ok) return resposta('falha ao registrar', 500);
     // Reentrega nao responde de novo: seria a mesma mensagem duas vezes na
@@ -165,6 +192,7 @@ async function textoDeVolta(
         confidence: true,
         errorMessage: true,
         kind: true,
+        proposedBusiness: true,
       },
     });
     if (!salva) return undefined;
@@ -185,6 +213,9 @@ async function textoDeVolta(
         // padrao nao explica — o caso de midia sem legenda. Para texto sem
         // valor, "nao achei um valor" seria a mesma frase repetida.
         motivoFalha: salva.kind !== 'TEXT' ? (salva.errorMessage ?? undefined) : undefined,
+        // So pergunta quando ha proposta de verdade e o negocio esta em
+        // aberto. Perguntar em cima de "nao achei valor" seria ruido.
+        perguntarNegocio: Boolean(salva.proposedAmountCents) && !salva.proposedBusiness,
         instrumento: doPdf?.cobranca?.instrumento,
         dvConfere: doPdf?.cobranca?.dvConfere,
         valorDaLegenda: doPdf?.valorDaLegenda,

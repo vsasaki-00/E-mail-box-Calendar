@@ -1,4 +1,5 @@
 import { formatarValor } from '@/core/finance/format';
+import { menuDeNegocios } from './escolha';
 
 /**
  * O que o Meridiano responde no WhatsApp. Ver docs/11-whatsapp.md
@@ -49,6 +50,12 @@ export interface ContextoResposta {
    * você precisa saber que os dois números existem.
    */
   valorDaLegenda?: number;
+  /**
+   * Perguntar de qual negócio é? Só quando a mensagem não disse — e a
+   * pergunta nunca bloqueia: ignorar é resposta válida, e o painel resolve
+   * depois.
+   */
+  perguntarNegocio?: boolean;
 }
 
 /** `15/08` — dia e mês bastam numa conversa sobre esta semana. */
@@ -127,6 +134,12 @@ export function montarResposta(ctx: ContextoResposta, timeZone = 'America/Sao_Pa
     );
   }
 
+  if (ctx.perguntarNegocio) {
+    linhas.push('');
+    linhas.push(`De qual negócio? Responda o número — ou ignore.`);
+    linhas.push(menuDeNegocios());
+  }
+
   linhas.push('');
   const p = ctx.outrasPendentes;
   linhas.push(
@@ -136,4 +149,18 @@ export function montarResposta(ctx: ContextoResposta, timeZone = 'America/Sao_Pa
   );
 
   return linhas.join('\n');
+}
+
+/**
+ * A confirmação de que a escolha foi anotada.
+ *
+ * Curta: você respondeu um número, e a única dúvida é se ele chegou no
+ * lugar certo. Repetir valor e descrição prova que sim — sem isso, "ok"
+ * poderia ter caído em qualquer proposta.
+ */
+export function respostaDeEscolha(negocio: string, proposta: { amountCents?: number; descricao?: string }): string {
+  const partes = [negocio];
+  if (proposta.amountCents) partes.push(formatarValor(proposta.amountCents));
+  if (proposta.descricao) partes.push(proposta.descricao);
+  return `Anotado: ${partes.join(' · ')}\n\nConfirme no painel. Nada foi lançado ainda.`;
 }

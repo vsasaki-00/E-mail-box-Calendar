@@ -296,6 +296,54 @@ valor e a frase cai no caminho honesto: "não achei um valor".
 A mesma trava vale na leitura de PDF: uma linha digitável corrompida pode
 render um número que a coluna não aceita.
 
+## Perguntar o negócio na conversa
+
+A mensagem quase nunca diz de qual negócio é — e é justamente o que o app
+não tem como adivinhar, com seis deles. Então a resposta pergunta:
+
+```
+Entendi: saída de R$ 1.200,00 · fornecedor XYZ · 15/08
+
+De qual negócio? Responda o número — ou ignore.
+1 Unitedcom · 2 Cordex.AI · 3 Brand.co · 4 EmpreendaSim · 5 Outros · 6 Pessoais
+```
+
+Você responde `3` — ou `brand`, ou `cordex` — e ele anota. Ou ignora, e
+resolve no painel. **A pergunta nunca bloqueia**: a proposta existe do mesmo
+jeito.
+
+Não é menu interativo do WhatsApp de propósito. Aquele exige template
+aprovado e cobra três toques para registrar uma despesa — mata a velocidade
+que faz o canal valer. Um menu em texto custa zero e pode ser ignorado.
+
+### O risco todo é confundir resposta com despesa
+
+`3` pode ser "Brand.co" ou "três reais". A regra é estreita e **erra para o
+lado de tratar como despesa** — porque uma despesa perdida some do painel,
+enquanto uma resposta perdida você só repete:
+
+| entra | vira |
+| --- | --- |
+| `3`, `brand`, `cordex ai` | escolha |
+| `paguei 3`, `R$ 3`, `3 reais`, `pix 3` | despesa |
+| `3,50`, `3 mil`, `1200` | despesa |
+| frase com mais de 40 caracteres | despesa |
+
+E a escolha só é aplicada se houver **uma** proposta esperando: a mais
+recente daquele número, sem negócio, dentro de **uma hora**. Uma hora
+depois, um `3` solto tem muito mais chance de ser despesa nova do que
+resposta esquecida.
+
+A mensagem de resposta é registrada como `REJECTED` — que é a verdade, um
+`3` não é lançamento — o que a mantém fora da fila da tela e faz a reentrega
+do Twilio não reprocessar, pela unique de sempre.
+
+**Verificado** contra o app rodando: despesa → pergunta; `3` → anotado
+Brand.co; `3` de novo sem pergunta de pé → volta a ser despesa de R$ 3,00,
+com "leitura incerta" declarada; resposta por nome (`cordex`) → anotado; e
+`paguei 3` seguindo como despesa. Na tela, as duas propostas apareceram com
+o negócio **já selecionado**.
+
 ## Reentrega e idempotência
 
 Os dois provedores **reentregam** o que não recebe 200. Por isso:

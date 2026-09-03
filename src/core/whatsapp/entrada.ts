@@ -256,3 +256,84 @@ export async function contextoDaResposta(
     outrasPendentes,
   };
 }
+
+/**
+ * Quanto tempo uma pergunta fica de pé.
+ *
+ * Uma hora depois, um `3` solto tem muito mais chance de ser uma despesa
+ * nova do que a resposta esquecida de uma pergunta antiga. A janela erra
+ * para o lado seguro: perder uma resposta custa repetir; tratar uma despesa
+ * como resposta custa a despesa.
+ */
+export const JANELA_DA_PERGUNTA_MS = 60 * 60 * 1000;
+
+/**
+ * A proposta que está esperando você dizer o negócio, se houver.
+ *
+ * A mais recente daquele número, ainda pendente e sem negócio, dentro da
+ * janela. Uma só: aplicar uma resposta a várias propostas seria adivinhar.
+ */
+export async function propostaEsperandoNegocio(
+  userId: string,
+  fromNumber: string,
+  agora = new Date(),
+) {
+  return prisma.inboxMessage.findFirst({
+    where: {
+      userId,
+      fromNumber,
+      status: 'PROPOSED',
+      proposedBusiness: null,
+      receivedAt: { gte: new Date(agora.getTime() - JANELA_DA_PERGUNTA_MS) },
+    },
+    orderBy: { receivedAt: 'desc' },
+    select: { id: true, proposedAmountCents: true, proposedDescription: true },
+  });
+}
+
+/**
+ * Grava a resposta e anota o negócio na proposta, numa transação.
+ *
+ * A mensagem é registrada como `REJECTED` — que é a verdade: um `3` não é
+ * lançamento nenhum. Isso a mantém fora da fila da tela e faz a reentrega
+ * do Twilio não reprocessar, pela mesma unique de sempre.
+ */
+export async function registrarEscolha(
+  userId: string,
+  msg: MensagemRecebida,
+  propostaId: string,
+  negocio: string,
+): Promise<{ duplicada: boolean }> {
+  const existente = await prisma.inboxMessage.findUnique({
+    where: { channel_externalId: { channel: 'WHATSAPP', externalId: msg.externalId } },
+    select: { id: true },
+  });
+  if (existente) return { duplicada: true };
+
+  await prisma.$transaction([
+    prisma.inboxMessage.create({
+      data: {
+        userId,
+        channel: 'WHATSAPP',
+        externalId: msg.externalId,
+        fromNumber: msg.fromNumber,
+        fromName: msg.fromName ?? null,
+        kind: msg.kind,
+        text: msg.text ?? null,
+        receivedAt: msg.receivedAt,
+        status: 'REJECTED',
+        proposedDate: msg.receivedAt,
+        confidence: 1,
+        reason: `Resposta à pergunta de negócio: ${negocio}`,
+      },
+    }),
+    prisma.inboxMessage.updateMany({
+      // `updateMany` com o userId no filtro: um id sozinho viria da
+      // mensagem, e mensagem é entrada de fora.
+      where: { id: propostaId, userId },
+      data: { proposedBusiness: negocio },
+    }),
+  ]);
+
+  return { duplicada: false };
+}
