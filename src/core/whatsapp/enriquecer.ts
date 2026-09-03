@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { baixarMidiaTwilio } from './midia';
 import { lerCobrancaDePdf, type CobrancaDePdf } from './pdf-cobranca';
+import { valorCabe } from './mensagem';
 
 /**
  * O PDF que chegou vira proposta. Ver docs/11-whatsapp.md
@@ -58,7 +59,9 @@ export async function enriquecerComPdf(
 
   const cobranca = await lerCobrancaDePdf(baixado.bytes, agora);
 
-  if (cobranca.amountCents === undefined) {
+  // Mesma trava do texto: uma linha digitável corrompida pode render um
+  // número que a coluna não aceita, e gravar isso derruba o webhook.
+  if (!valorCabe(cobranca.amountCents)) {
     await prisma.inboxMessage.update({
       where: { id: msg.id },
       data: { errorMessage: cobranca.motivo ?? 'Não achei valor no PDF.' },

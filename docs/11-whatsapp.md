@@ -280,6 +280,22 @@ que deu certo e a despesa some. Aí a resposta é o aviso, com exemplo — dizer
 E o texto da mensagem é escapado antes de entrar no XML: um `&` na descrição
 de um fornecedor quebraria a resposta inteira.
 
+## O valor tem teto, e o teto é a coluna
+
+Encontrado em produção, no log do Twilio: uma mensagem rendeu
+`717262299560894000` centavos, o `Int` do Postgres recusou, a gravação
+estourou, o webhook devolveu **500** — e o Twilio passou a reentregar para
+sempre. A mensagem nunca aparecia, e a causa não estava em lugar nenhum da
+tela.
+
+Uma frase de WhatsApp com dezesseis dígitos é uma **chave** — linha de
+boleto, chave PIX, número de documento —, nunca dinheiro. Acima de
+`R$ 21.474.836,47` (o que cabe num `Int`) o número deixa de ser tratado como
+valor e a frase cai no caminho honesto: "não achei um valor".
+
+A mesma trava vale na leitura de PDF: uma linha digitável corrompida pode
+render um número que a coluna não aceita.
+
 ## Reentrega e idempotência
 
 Os dois provedores **reentregam** o que não recebe 200. Por isso:

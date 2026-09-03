@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { interpretarTexto } from './mensagem';
+import { MAX_CENTAVOS, interpretarTexto, valorCabe } from './mensagem';
 
 const AGORA = new Date('2026-09-02T15:00:00Z');
 
@@ -80,5 +80,37 @@ describe('interpretarTexto — descricao', () => {
 
   it('frase que e so valor nao inventa descricao', () => {
     expect(interpretarTexto('paguei 100', AGORA).descricao).toBe('(sem descrição)');
+  });
+});
+
+describe('valor grande demais nao pode virar 500', () => {
+  // Producao: a mensagem trazia 717262299560894000 centavos, a coluna Int do
+  // Postgres recusou, o webhook devolveu 500 e o Twilio passou a reentregar
+  // para sempre. A mensagem nunca aparecia.
+  it('numero de dezesseis digitos e CHAVE, nao dinheiro', () => {
+    const r = interpretarTexto('pix 7172622995608940 para o fornecedor', new Date());
+    expect(r.amountCents).toBeUndefined();
+  });
+
+  it('linha digitavel de boleto nao vira valor', () => {
+    const r = interpretarTexto('34191790010104351004791020150008484410000174080', new Date());
+    expect(r.amountCents).toBeUndefined();
+  });
+
+  it('o teto e o que a coluna aceita', () => {
+    expect(valorCabe(MAX_CENTAVOS)).toBe(true);
+    expect(valorCabe(MAX_CENTAVOS + 1)).toBe(false);
+    expect(valorCabe(0)).toBe(false);
+    expect(valorCabe(-100)).toBe(false);
+    expect(valorCabe(undefined)).toBe(false);
+  });
+
+  it('valor grande PORÉM plausivel continua passando', () => {
+    // Um negocio pode mesmo pagar 500 mil. O teto e a coluna, nao o bom senso.
+    expect(interpretarTexto('paguei 500.000 do imovel', new Date()).amountCents).toBe(50_000_000);
+  });
+
+  it('e o caso normal nao mudou', () => {
+    expect(interpretarTexto('paguei o fornecedor XYZ, 1.200', new Date()).amountCents).toBe(120_000);
   });
 });

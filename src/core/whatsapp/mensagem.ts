@@ -36,6 +36,22 @@ const RE_VALOR = /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|
 /** Datas escritas à mão: 15/08, 15/08/26, ontem, hoje, anteontem. */
 const RE_DATA = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/;
 
+/**
+ * Teto do valor: o que cabe num `Int` do Postgres (R$ 21.474.836,47).
+ *
+ * Não é preciosismo de tipo. Uma frase de WhatsApp com dezesseis dígitos é
+ * uma CHAVE — linha de boleto, chave PIX, número de documento —, nunca
+ * dinheiro. Sem este teto ela virava um número que o banco recusa, a
+ * gravação estourava, e o webhook devolvia 500; o Twilio então reentrega
+ * para sempre e a mensagem nunca aparece. Foi o que aconteceu em produção.
+ */
+export const MAX_CENTAVOS = 2_147_483_647;
+
+/** O valor cabe na coluna? Usado também na leitura de PDF. */
+export function valorCabe(cents: number | undefined): cents is number {
+  return cents !== undefined && Number.isSafeInteger(cents) && cents > 0 && cents <= MAX_CENTAVOS;
+}
+
 function paraCentavos(bruto: string, sufixo?: string): number | undefined {
   let texto = bruto.trim();
 
@@ -49,7 +65,10 @@ function paraCentavos(bruto: string, sufixo?: string): number | undefined {
   if (!Number.isFinite(numero) || numero <= 0) return undefined;
 
   const multiplicador = sufixo ? 1000 : 1;
-  return Math.round(numero * multiplicador * 100);
+  const cents = Math.round(numero * multiplicador * 100);
+  // Acima do teto não é valor: é código. Devolver `undefined` faz a frase
+  // cair no caminho honesto — "não achei um valor" — em vez de estourar.
+  return valorCabe(cents) ? cents : undefined;
 }
 
 /**
