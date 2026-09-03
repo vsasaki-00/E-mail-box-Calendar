@@ -17,8 +17,25 @@
  *     faria o Twilio reentregar a mensagem inteira.
  */
 
-/** Hosts de onde aceitamos buscar. Nada além disto. */
+/** Hosts do PRIMEIRO pedido. A URL vem do webhook, então aqui é fechado. */
 const HOSTS_PERMITIDOS = new Set(['api.twilio.com', 'media.twiliocdn.com']);
+
+/**
+ * Endereços que nunca podem ser o destino de um redirecionamento.
+ *
+ * O primeiro pedido é travado por allowlist porque a URL vem do corpo do
+ * webhook. O DESTINO do redirecionamento é outra coisa: quem o escolhe é o
+ * Twilio, numa resposta que só existe porque a assinatura conferiu — e ele
+ * aponta para o S3, que muda de host por região. Uma allowlist ali quebra
+ * sozinha (foi o que aconteceu: "Redirecionamento para fora do Twilio" num
+ * PDF legítimo).
+ *
+ * Então o destino aceita host público qualquer, e o que fica barrado é o
+ * que um redirecionamento jamais deveria alcançar: a própria máquina e as
+ * redes internas.
+ */
+const INTERNO =
+  /^(localhost|.*\.localhost|127\..*|0\..*|10\..*|192\.168\..*|172\.(1[6-9]|2\d|3[01])\..*|169\.254\..*|\[?::1\]?|\[?f[cd].*)$/i;
 
 /** 8 MB. O WhatsApp já limita bem abaixo disso; isto é o cinto. */
 export const LIMITE_BYTES = 8 * 1024 * 1024;
@@ -41,6 +58,24 @@ export function urlDeMidiaPermitida(bruta: string): boolean {
   }
   if (url.protocol !== 'https:') return false;
   return HOSTS_PERMITIDOS.has(url.hostname.toLowerCase());
+}
+
+/**
+ * O destino do redirecionamento serve?
+ *
+ * Https e fora das redes internas. Menos fechado que o primeiro salto, e de
+ * propósito: este endereço foi escolhido pelo Twilio, não por quem mandou a
+ * mensagem. O que continua valendo é que nenhuma credencial viaja para cá.
+ */
+export function destinoDeRedirecionamentoPermitido(bruta: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(bruta);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  return !INTERNO.test(url.hostname.toLowerCase());
 }
 
 export type ResultadoMidia =
@@ -107,7 +142,9 @@ export async function baixarMidiaTwilio(
       const destino = primeira.headers.get('location');
       if (!destino) return { ok: false, erro: 'Redirecionamento sem destino' };
       const absoluto = new URL(destino, url).toString();
-      if (!urlDeMidiaPermitida(absoluto)) return { ok: false, erro: 'Redirecionamento para fora do Twilio' };
+      if (!destinoDeRedirecionamentoPermitido(absoluto)) {
+        return { ok: false, erro: 'Redirecionamento para endereço não permitido' };
+      }
       // Sem credencial: o link já é assinado pelo próprio Twilio.
       resposta = await fetch(absoluto, { signal: controle.signal });
     }

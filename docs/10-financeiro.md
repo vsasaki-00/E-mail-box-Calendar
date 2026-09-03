@@ -329,3 +329,59 @@ não deveria fazer — ainda mais quando a resposta é 171.
 **Verificado** com uma importação semeada de 171 linhas, seis delas tocadas
 à mão: a prévia mostrou 165 e 6, o clique apagou 165, a importação sumiu e
 as 6 preservadas ficaram no banco, soltas de qualquer importação.
+
+## Nota esperando o extrato
+
+Você pagou no cartão. Aquilo **vai** aparecer na fatura — então mandar pelo
+WhatsApp como lançamento criaria **dois registros para um pagamento só**. A
+conciliação casa lançamento com cobrança de e-mail, nunca lançamento com
+lançamento, e o importador deduplica por impressão digital dentro da conta:
+uma linha do extrato nasce `hash:`/`fitid:`, um lançamento do WhatsApp nasce
+`whatsapp:`. Ninguém avisaria, e a análise contaria os dois.
+
+Mas o extrato nunca vai saber **para que foi** nem **de qual negócio**. Essa
+parte só você tem, e ela é perecível: daqui a três semanas
+"PIX 12/08 R$ 1.200" não diz nada.
+
+Por isso a tela de entrada tem um terceiro botão: **"vem no extrato"**. A
+mensagem não vira lançamento — vira nota, guardando o significado. Na
+próxima importação ela cola na linha correspondente.
+
+A pergunta ("isso vai aparecer no extrato?") fica na **tela**, e não numa
+palavra-chave na mensagem. É onde você tem o contexto todo, e evita inventar
+sintaxe.
+
+### Só o casamento inequívoco cola
+
+Uma nota que serve para uma linha só, **e** uma linha que serve para uma
+nota só. Valor exato (com o sinal certo) e até sete dias de distância —
+compra no cartão cai na fatura dias depois.
+
+Duas compras de R$ 1.200 na mesma semana não deixam ninguém decidir qual é
+qual, e colar a errada poria o negócio errado num lançamento **em silêncio**.
+Empate deixa a nota esperando, que é o estado em que ela já estava: não se
+perde nada, e a tela mostra.
+
+A categoria colada entra como `USER`, porque veio de você, na hora em que
+aconteceu — regra e heurística não a sobrescrevem depois.
+
+### O que ela ainda não faz
+
+Uma nota que ficou em empate espera a **próxima** importação. Se as linhas
+que empataram já foram importadas, ela não vai colar sozinha nunca mais —
+fica visível em "Esperando o extrato", e o caminho é descartá-la e ajustar o
+negócio direto no lançamento, na tela de extrato. Colagem manual, escolhendo
+a linha, ainda não existe.
+
+### Verificado
+
+Um CSV com três linhas (−1.200 em 12/08, −899 em 13/08, −1.200 em 14/08) e
+duas notas esperando:
+
+- a nota de **R$ 899,00** colou na linha do PIX, levando negócio, categoria
+  e o rastro `Nota de 12/08 pelo WhatsApp: almoço com cliente ACME`;
+- a nota de **R$ 1.200,00** continuou esperando, e as duas linhas de 1.200
+  ficaram sem negócio — nenhum chute.
+
+Banco: `prisma/fase8-notas.sql` (uma linha, só acrescenta um valor ao enum —
+não cria tabela, então não há aviso de RLS).

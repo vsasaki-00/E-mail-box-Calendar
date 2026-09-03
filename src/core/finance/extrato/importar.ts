@@ -289,7 +289,11 @@ export async function importarExtrato(params: ImportarParams): Promise<Resultado
     avisos.push(`${sugeridos} par(es) com cobranças de e-mail sugerido(s) — confira em Conciliação.`);
   }
   if (coladas > 0) {
-    avisos.push(`${coladas} nota(s) do WhatsApp coladas nos lançamentos correspondentes.`);
+    avisos.push(
+      coladas === 1
+        ? '1 nota do WhatsApp colou no lançamento correspondente.'
+        : `${coladas} notas do WhatsApp colaram nos lançamentos correspondentes.`,
+    );
   }
   if (duplicados > 0) {
     avisos.push(`${duplicados} lançamento(s) já existiam (de outro arquivo) e não foram repetidos.`);
