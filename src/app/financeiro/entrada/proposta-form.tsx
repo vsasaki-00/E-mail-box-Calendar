@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState, useState, useTransition } from 'react';
-import { aguardarExtrato, confirmarEntrada, descartarEntrada, type ResultadoEntrada } from './actions';
+import { aguardarExtrato, confirmarEntrada, descartarEntrada, marcarComoCobranca, type ResultadoEntrada } from './actions';
 
 /**
  * Uma proposta vinda do WhatsApp, editável antes de virar lançamento.
@@ -104,7 +104,20 @@ export function PropostaForm({
       >
         {enviando ? 'lançando…' : 'lançar'}
       </button>
-      {/* Terceiro caminho, e o que evita contar o mesmo pagamento duas
+      {/* Um boleto que VENCE nao saiu ainda: lancar diria que o dinheiro
+          saiu, inflando a despesa do mes e duplicando quando o extrato
+          chegar. Vira cobranca, aparece em "o que vence", e o pagamento e
+          casado depois pela conciliacao. */}
+      <button
+        type="button"
+        disabled={descartando}
+        title="Ainda não pagou: vira conta a pagar, com vencimento, na tela de Cobranças."
+        onClick={() => iniciarDescarte(async () => { await marcarComoCobranca(item.id); window.location.reload(); })}
+        style={{ ...campo, cursor: 'pointer', background: 'transparent', color: 'var(--zenite)' }}
+      >
+        a pagar
+      </button>
+      {/* Quarto caminho, e o que evita contar o mesmo pagamento duas
           vezes: o que vai aparecer no extrato NAO deve virar lancamento
           aqui. Vira nota, e o significado cola na linha certa na proxima
           importacao. */}

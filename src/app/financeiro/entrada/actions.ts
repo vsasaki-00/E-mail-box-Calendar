@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/db';
 import { aceitarProposta, rejeitarMensagem } from '@/core/whatsapp/entrada';
 import { negocioValido } from '@/core/triage/negocios-dados';
+import { criarCobrancaDeMensagem } from '@/core/finance/cobranca-do-whatsapp';
 
 export interface ResultadoEntrada {
   ok: boolean;
@@ -106,4 +107,24 @@ export async function aguardarExtrato(form: FormData): Promise<void> {
 
   revalidatePath('/financeiro/entrada');
   revalidatePath('/financeiro/extrato');
+}
+
+/**
+ * "Isto é conta a pagar."
+ *
+ * Não vira lançamento: lançamento diz que o dinheiro saiu, e um boleto que
+ * vence dia 31 não saiu nada. Vira cobrança, aparece em "o que vence", e o
+ * pagamento é casado depois pela conciliação — igual ao boleto detectado em
+ * e-mail.
+ */
+export async function marcarComoCobranca(mensagemId: string): Promise<ResultadoEntrada> {
+  const u = await usuarioAtual();
+  if (!u) return { ok: false, erro: 'Sem usuário' };
+
+  const r = await criarCobrancaDeMensagem(u.id, mensagemId);
+  if (!r.ok) return { ok: false, erro: r.erro };
+
+  revalidatePath('/financeiro/entrada');
+  revalidatePath('/financeiro');
+  return { ok: true };
 }

@@ -385,3 +385,48 @@ duas notas esperando:
 
 Banco: `prisma/fase8-notas.sql` (uma linha, só acrescenta um valor ao enum —
 não cria tabela, então não há aviso de RLS).
+
+## Boleto do WhatsApp vira conta a pagar
+
+Um boleto que **vence** dia 31 não saiu nada ainda. Lançá-lo diria que o
+dinheiro saiu: infla a despesa do mês e, quando o extrato chegar, a mesma
+saída entra de novo pela linha do banco.
+
+Por isso a tela de entrada tem o botão **a pagar**. Ele cria uma
+`BillExtraction` de verdade — a mesma entidade das cobranças detectadas em
+e-mail —, com valor, vencimento e beneficiário. Aparece em **Cobranças**,
+conta no "em aberto", avisa quando vence, e o pagamento é casado depois pela
+conciliação.
+
+Nenhum `LedgerEntry` é criado. Dinheiro só entra no razão quando ele se
+move.
+
+### Quatro destinos, e por que quatro
+
+| botão | quando | o que cria |
+| --- | --- | --- |
+| **lançar** | já saiu (ou entrou) | `LedgerEntry` |
+| **a pagar** | vai sair, tem vencimento | `BillExtraction` |
+| **vem no extrato** | vai aparecer no extrato; só quero o significado | nota esperando |
+| **não é lançamento** | nada disso | descarta |
+
+A cobrança pendura num `UnifiedItem` sem mensagem, com `dedupeKey`
+`whatsapp:<id>`. É o que permite as duas origens — e-mail e WhatsApp —
+conviverem na mesma tela sem uma tabela paralela, e o que faz clicar duas
+vezes não criar duas cobranças.
+
+### A linha digitável é relida do PDF
+
+Ela é extraída no webhook mas não fica guardada na mensagem. No clique, o
+PDF é baixado de novo e relido: uns segundos numa ação de tela, não no
+webhook, onde o tempo é apertado. Com a linha, a cobrança nasce
+`INSTRUMENT` (dígito verificador confere) e dá para copiar e pagar pelo
+painel; sem ela, nasce igual, só sem esse conforto.
+
+### Verificado
+
+Com uma proposta de boleto semeada (R$ 182,99, vence 31/08): o clique criou
+**uma cobrança e nenhum lançamento**; clicar de novo foi recusado; e a tela
+de Cobranças mostrou `Boleto Itaú · R$ 182,99 · 31/08/2026 · vencida há 3d`,
+com o total em aberto atualizado. Uma cobrança sem e-mail de origem não
+quebra a tela — todos os campos de conexão já eram opcionais.

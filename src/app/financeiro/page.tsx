@@ -149,7 +149,8 @@ export default async function PaginaFinanceiro({
         <div>
           <h1>Financeiro</h1>
           <p className="sub">
-            Contas a pagar detectadas nos seus e-mails, somando todas as caixas.
+            Contas a pagar: detectadas nos seus e-mails, somando todas as caixas, mais as que você
+            mandou pelo WhatsApp.
           </p>
         </div>
         <div>
@@ -162,8 +163,9 @@ export default async function PaginaFinanceiro({
       <div className="aviso" style={{ marginBottom: 16 }}>
         <p>
           <strong>Isto é detecção automática, não uma garantia de completude.</strong> Uma
-          cobrança que chegou só como PDF anexo, ou num e-mail que a triagem não marcou como
-          cobrança, não aparece aqui. Não use esta tela como prova de que está tudo pago.
+          cobrança num e-mail que a triagem não marcou como cobrança não aparece aqui. Não use
+          esta tela como prova de que está tudo pago. Boleto que você mandar pelo WhatsApp entra
+          por escolha sua, no botão <em>a pagar</em> da tela de Entrada.
         </p>
         <p className="sub">
           Boleto e PIX são lidos <strong>localmente</strong>, com conferência de dígito

@@ -29,6 +29,8 @@ export interface CobrancaDePdf {
   /** Quando quem leu foi o modelo, e não a aritmética. */
   confianca?: number;
   deFoto?: boolean;
+  /** Só dígitos. Permite copiar e pagar pelo painel. */
+  linhaDigitavel?: string;
 }
 
 /** Boleto costuma caber na primeira página; duas por folga, sem pagar caro. */
@@ -83,5 +85,6 @@ export async function lerCobrancaDePdf(bytes: Uint8Array, agora = new Date()): P
     // Boleto tem os DVs da linha; PIX tem o CRC-16 do payload. Os dois
     // respondem a mesma pergunta: o número que li está íntegro?
     dvConfere: boleto ? boleto.checksumValid : pix ? pix.crcValid : undefined,
+    linhaDigitavel: boleto?.digitableLine,
   };
 }
