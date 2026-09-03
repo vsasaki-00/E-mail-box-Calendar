@@ -94,7 +94,8 @@ export default async function PaginaEntrada() {
         </div>
       ) : (
         <p className="sub" style={{ marginBottom: 16, fontSize: 12 }}>
-          Canal ligado via <strong>{provedor}</strong>, aceitando {allowlist.length} número(s).
+          Canal ligado via <strong>{provedor}</strong>, aceitando{' '}
+          {allowlist.length === 1 ? '1 número' : `${allowlist.length} números`}.
           {jaLancadas > 0 && ` ${jaLancadas} mensagem(ns) já viraram lançamento.`}
         </p>
       )}
