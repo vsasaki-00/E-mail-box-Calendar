@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTimeline, isSyncStale, dayBounds } from './control-tower';
+import { buildTimeline, dayBounds, intervaloEsperadoMinutos, isSyncStale } from './control-tower';
 import type { ConflictCandidate } from './conflicts';
 
 const CORES = new Map([
@@ -85,26 +85,53 @@ describe('buildTimeline', () => {
   });
 });
 
-describe('isSyncStale', () => {
+describe('isSyncStale — a regua e a CADENCIA, nao o conector', () => {
   const agora = new Date('2026-08-30T12:00:00Z');
+  const horasAtras = (h: number) => new Date(agora.getTime() - h * 3600_000);
+  const CADENCIA = intervaloEsperadoMinutos();
 
   it('trata conta que nunca sincronizou como problema, nao como estado neutro', () => {
-    expect(isSyncStale(null, 5, agora)).toBe(true);
+    expect(isSyncStale(null, CADENCIA, agora)).toBe(true);
   });
 
-  it('aceita sync dentro de 3x o intervalo esperado', () => {
-    expect(isSyncStale(new Date('2026-08-30T11:46:00Z'), 5, agora)).toBe(false);
+  it('o padrao e o maior intervalo normal do agendamento: 12 horas', () => {
+    // O agendamento roda 3x por dia (10h, 16h, 22h UTC); o maior vao e o da
+    // noite. O conector diz `pollIntervalSeconds: 300`, mas isso e "da para
+    // me ler a cada 5 min", nao "sou lido a cada 5 min".
+    expect(CADENCIA).toBe(720);
   });
 
-  it('acusa atraso acima de 3x o intervalo esperado', () => {
-    expect(isSyncStale(new Date('2026-08-30T11:44:00Z'), 5, agora)).toBe(true);
+  it('silencio NORMAL entre dois ciclos nao e atraso', () => {
+    // Era exatamente isto que ficava vermelho o tempo todo: qualquer coisa
+    // acima de 15 minutos.
+    for (const h of [0.5, 2, 6, 11]) {
+      expect(isSyncStale(horasAtras(h), CADENCIA, agora)).toBe(false);
+    }
   });
 
-  it('usa o intervalo maior do CalDAV antes de acusar atraso', () => {
-    // 15 min de intervalo tolera 45 min de silencio; o Google, so 15.
-    const haMeiaHora = new Date('2026-08-30T11:30:00Z');
-    expect(isSyncStale(haMeiaHora, 15, agora)).toBe(false);
-    expect(isSyncStale(haMeiaHora, 5, agora)).toBe(true);
+  it('tolera o ciclo atrasar, mas acusa o ciclo PERDIDO', () => {
+    // 12h + 25% = 15h. Perder um ciclo produz 18h ou mais.
+    expect(isSyncStale(horasAtras(14), CADENCIA, agora)).toBe(false);
+    expect(isSyncStale(horasAtras(16), CADENCIA, agora)).toBe(true);
+    expect(isSyncStale(horasAtras(24), CADENCIA, agora)).toBe(true);
+  });
+
+  it('cadencia menor aperta a regua na mesma proporcao', () => {
+    // Quem mudar o agendamento ajusta SYNC_EXPECTED_INTERVAL_MINUTES.
+    expect(isSyncStale(horasAtras(2), 60, agora)).toBe(true);
+    expect(isSyncStale(horasAtras(1), 60, agora)).toBe(false);
+  });
+});
+
+describe('intervaloEsperadoMinutos', () => {
+  it('respeita a variavel de ambiente quando ela e valida', () => {
+    process.env.SYNC_EXPECTED_INTERVAL_MINUTES = '90';
+    expect(intervaloEsperadoMinutos()).toBe(90);
+    for (const lixo of ['0', '-5', 'abc', '']) {
+      process.env.SYNC_EXPECTED_INTERVAL_MINUTES = lixo;
+      expect(intervaloEsperadoMinutos()).toBe(720);
+    }
+    delete process.env.SYNC_EXPECTED_INTERVAL_MINUTES;
   });
 });
 

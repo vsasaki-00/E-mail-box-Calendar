@@ -204,16 +204,19 @@ export default async function PaginaSaude({
               </div>
             </section>
 
-            <section className={`card ${vencidos > 0 ? 'aviso-cor' : ''}`}>
+            {/* Sem cor de alerta: com 3 voltas por dia, ter recursos
+                vencidos ENTRE dois ciclos é o estado normal, não um
+                problema. Quem responde "o agendamento está rodando?" é o
+                cartão de voltas por dia — pintar este de âmbar seria um
+                alarme aceso o tempo todo. */}
+            <section className="card">
               <h2>
                 <IconeConflito size={13} /> Esperando a vez
               </h2>
-              <div className="metric" style={{ color: vencidos > 0 ? 'var(--zenite)' : undefined }}>
-                {vencidos}
-              </div>
+              <div className="metric">{vencidos}</div>
               <div className="metric-label">
                 {vencidos === 0
-                  ? 'nada vencido: todo mundo em dia'
+                  ? 'nada na fila: a última volta pegou tudo'
                   : `de ${dados.estados.length} recursos, prontos para a próxima volta`}
               </div>
             </section>

@@ -12,8 +12,19 @@ Um card por conta, com o `status` da `Connection`, o horário do último sync
 bem-sucedido e o último erro. Ação direta no card: *Reconectar*, *Sincronizar
 agora*, *Desativar*.
 
-Regra: **conta com sync atrasado além de 3× o intervalo esperado vira alerta.**
+Regra: **conta sem sync há mais de 1,25× a cadência do agendamento vira
+alerta** — hoje 15 h, porque o agendamento roda 3× por dia (10 h, 16 h e 22 h
+UTC) e o maior vão normal é o da noite, 12 h. Ajustável por
+`SYNC_EXPECTED_INTERVAL_MINUTES`.
+
 Silêncio não é sinal de saúde — é o modo de falha mais comum de agregadores.
+Mas a régua tem que ser a da implantação, não a do conector. A primeira versão
+usava o `pollIntervalSeconds` que o conector declara (300 s) vezes 3: 15
+minutos. Só que `pollIntervalSeconds` responde "com que frequência **dá para**
+me ler", e não "com que frequência **sou** lido" — quem responde a segunda é o
+agendamento. Resultado: toda conexão ficava vermelha o tempo inteiro, menos nos
+15 minutos seguintes a um sync, e a Torre carregava seis alertas permanentes.
+Um alarme que nunca desliga ensina a ignorar todos os alarmes.
 
 ### 2. Agenda do dia unificada
 Todos os eventos de todas as contas, em uma faixa de tempo, coloridos por

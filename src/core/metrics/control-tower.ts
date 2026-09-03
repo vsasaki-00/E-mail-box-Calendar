@@ -119,9 +119,37 @@ export interface ControlTowerData {
   }[];
 }
 
-/** Um sync e considerado atrasado a partir de 3x o intervalo esperado. */
-const STALE_MULTIPLIER = 3;
-const DEFAULT_INTERVAL_MINUTES = 5;
+/**
+ * Quanto tempo sem sync é normal.
+ *
+ * Este número é da IMPLANTAÇÃO, não do conector. O conector declara
+ * `pollIntervalSeconds: 300` — "dá para me ler a cada 5 minutos" —, mas
+ * quem chama é o agendamento do GitHub Actions, 3× por dia (10h, 16h e 22h
+ * UTC). O maior intervalo normal é o da noite: **12 horas**.
+ *
+ * Usar os 5 minutos do conector como régua deixava TODA conexão marcada
+ * "atrasada" o tempo inteiro, menos nos 15 minutos seguintes a um sync — e
+ * gerava seis alertas permanentes na Torre. Um alarme que nunca desliga
+ * ensina a ignorar todos os alarmes.
+ *
+ * Se você mudar a cadência do agendamento, ajuste
+ * `SYNC_EXPECTED_INTERVAL_MINUTES`.
+ */
+const DEFAULT_INTERVAL_MINUTES = 12 * 60;
+
+/**
+ * Folga sobre o intervalo esperado.
+ *
+ * Um ciclo leva minutos e pode atrasar; 25% de folga (15h sobre 12h) evita
+ * gritar por causa disso, e ainda pega um ciclo PERDIDO — que produziria um
+ * intervalo de 18h ou mais.
+ */
+const STALE_MULTIPLIER = 1.25;
+
+export function intervaloEsperadoMinutos(): number {
+  const bruto = Number(process.env.SYNC_EXPECTED_INTERVAL_MINUTES);
+  return Number.isFinite(bruto) && bruto > 0 ? bruto : DEFAULT_INTERVAL_MINUTES;
+}
 
 export function isSyncStale(
   lastSyncAt: Date | null,
@@ -297,10 +325,10 @@ export async function loadControlTower(userId: string, now = new Date()): Promis
   }
 
   const health: ConnectionHealth[] = connections.map((connection) => {
-    const capabilities = connection.capabilities as { pollIntervalSeconds?: number } | null;
-    const expectedMinutes = capabilities?.pollIntervalSeconds
-      ? capabilities.pollIntervalSeconds / 60
-      : DEFAULT_INTERVAL_MINUTES;
+    // Deliberadamente NÃO usa `pollIntervalSeconds` do conector: aquilo é
+    // "com que frequência dá para me ler", e não "com que frequência sou
+    // lido". Quem decide a segunda é o agendamento.
+    const expectedMinutes = intervaloEsperadoMinutos();
 
     return {
       id: connection.id,
