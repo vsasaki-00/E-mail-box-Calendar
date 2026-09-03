@@ -4,6 +4,7 @@ import { lerAllowlist, numeroAutorizado } from '@/core/whatsapp/seguranca';
 import { assinaturaTwilioConfere, converterTwilio, urlPublica } from '@/core/whatsapp/twilio';
 import { contextoDaResposta, registrarMensagem } from '@/core/whatsapp/entrada';
 import { montarResposta } from '@/core/whatsapp/resposta';
+import { enriquecerComPdf } from '@/core/whatsapp/enriquecer';
 import { CABECALHOS_TWIML, twimlMensagem, twimlVazio } from '@/core/whatsapp/twiml';
 import { DEFAULT_TIMEZONE } from '@/core/time/zone';
 
@@ -126,7 +127,11 @@ export async function POST(request: NextRequest) {
     // conversa por causa de um problema de rede.
     if (r.duplicada) return resposta('duplicada: ja registrada');
 
-    const texto = await textoDeVolta(usuario.id, usuario.timezone, r.id);
+    // PDF vira proposta ANTES de montar a resposta: senao o texto de volta
+    // diria "nao consegui ler" sobre um boleto que acabou de ser lido.
+    const doPdf = await enriquecerComPdf(r.id).catch(() => undefined);
+
+    const texto = await textoDeVolta(usuario.id, usuario.timezone, r.id, doPdf);
     // So o desfecho na nota. Nunca o texto da mensagem que voce mandou.
     return texto ? respostaComTexto(texto, 'registrada') : resposta('registrada');
   } catch {
@@ -143,7 +148,12 @@ export async function POST(request: NextRequest) {
  * dono perde o aviso, mas com um erro aqui o Twilio reentregaria e a
  * mensagem viraria duas. Por isso todo o bloco cai em silencio.
  */
-async function textoDeVolta(userId: string, timezone: string | null, mensagemId: string) {
+async function textoDeVolta(
+  userId: string,
+  timezone: string | null,
+  mensagemId: string,
+  doPdf?: { cobranca?: { instrumento?: 'BOLETO' | 'PIX'; dvConfere?: boolean }; valorDaLegenda?: number },
+) {
   try {
     const salva = await prisma.inboxMessage.findUnique({
       where: { id: mensagemId },
@@ -175,6 +185,9 @@ async function textoDeVolta(userId: string, timezone: string | null, mensagemId:
         // padrao nao explica — o caso de midia sem legenda. Para texto sem
         // valor, "nao achei um valor" seria a mesma frase repetida.
         motivoFalha: salva.kind !== 'TEXT' ? (salva.errorMessage ?? undefined) : undefined,
+        instrumento: doPdf?.cobranca?.instrumento,
+        dvConfere: doPdf?.cobranca?.dvConfere,
+        valorDaLegenda: doPdf?.valorDaLegenda,
         ...ctx,
       },
       timezone || DEFAULT_TIMEZONE,

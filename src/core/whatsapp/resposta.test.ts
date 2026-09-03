@@ -107,3 +107,53 @@ describe('montarResposta', () => {
     expect(cheia.length).toBeLessThan(420);
   });
 });
+
+describe('resposta de um PDF de cobranca', () => {
+  const PDF: ContextoResposta = {
+    amountCents: 174080,
+    direcao: 'SAIDA',
+    descricao: 'Boleto Itaú',
+    data: new Date('2026-09-10T12:00:00Z'),
+    confianca: 0.95,
+    instrumento: 'BOLETO',
+    dvConfere: true,
+    outrasPendentes: 0,
+  };
+
+  it('diz o que o documento e, com valor e vencimento', () => {
+    const t = txt(PDF);
+    expect(t).toContain('Li o boleto: R$ 1.740,80 · Boleto Itaú · vence 10/09');
+    // Nao repete "entendi: saida de" em cima de um documento que ja se nomeia.
+    expect(t).not.toContain('Entendi:');
+  });
+
+  it('digito verificador que fecha e dito', () => {
+    expect(txt(PDF)).toContain('Dígitos verificadores fecham');
+  });
+
+  it('digito que NAO fecha vira aviso, nunca silencio', () => {
+    const t = txt({ ...PDF, dvConfere: false });
+    expect(t).toContain('não* fecham');
+    expect(t).toContain('confira no documento original');
+  });
+
+  it('PIX aparece como PIX', () => {
+    expect(txt({ ...PDF, instrumento: 'PIX', descricao: 'PIX FORNECEDOR XYZ' })).toContain('Li o PIX:');
+  });
+
+  it('divergencia entre legenda e documento e CONTADA, nao escondida', () => {
+    // Pode ser pagamento parcial — mas voce precisa saber que ha dois numeros.
+    const t = txt({ ...PDF, valorDaLegenda: 120000 });
+    expect(t).toContain('Você escreveu R$ 1.200,00 na legenda');
+    expect(t).toContain('o documento diz R$ 1.740,80');
+    expect(t).toContain('Mantive o seu');
+  });
+
+  it('legenda igual ao documento nao gera aviso de divergencia', () => {
+    expect(txt({ ...PDF, valorDaLegenda: 174080 })).not.toContain('na legenda');
+  });
+
+  it('continua dizendo que nada foi lancado', () => {
+    expect(txt(PDF)).toContain('Nada foi lançado ainda');
+  });
+});

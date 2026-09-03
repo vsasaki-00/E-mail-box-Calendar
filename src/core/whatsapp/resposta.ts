@@ -39,6 +39,16 @@ export interface ContextoResposta {
   outrasPendentes: number;
   /** Por que não deu para ler, quando não deu. */
   motivoFalha?: string;
+  /** Veio de um PDF: boleto ou PIX lido do arquivo. */
+  instrumento?: 'BOLETO' | 'PIX';
+  /** Os dígitos verificadores fecharam? Só existe quando veio instrumento. */
+  dvConfere?: boolean;
+  /**
+   * Valor que VOCÊ escreveu na legenda, quando ele diverge do que o PDF diz.
+   * Divergência é informação, não erro: pode ser pagamento parcial — mas
+   * você precisa saber que os dois números existem.
+   */
+  valorDaLegenda?: number;
 }
 
 /** `15/08` — dia e mês bastam numa conversa sobre esta semana. */
@@ -68,12 +78,32 @@ export function montarResposta(ctx: ContextoResposta, timeZone = 'America/Sao_Pa
     return linhas.join('\n');
   }
 
-  const sinal = ctx.direcao === 'ENTRADA' ? 'entrada' : 'saída';
   const partes = [formatarValor(ctx.amountCents)];
   if (ctx.descricao) partes.push(ctx.descricao);
-  if (ctx.data) partes.push(diaMes(ctx.data, timeZone));
 
-  linhas.push(`Entendi: ${sinal} de ${partes.join(' · ')}`);
+  if (ctx.instrumento) {
+    // Boleto e PIX já dizem o que são; "entendi: saída de" seria ruído em
+    // cima de um documento que carrega o próprio nome.
+    if (ctx.data) partes.push(`vence ${diaMes(ctx.data, timeZone)}`);
+    linhas.push(`Li o ${ctx.instrumento === 'BOLETO' ? 'boleto' : 'PIX'}: ${partes.join(' · ')}`);
+    if (ctx.dvConfere === true) {
+      linhas.push('Dígitos verificadores fecham.');
+    } else if (ctx.dvConfere === false) {
+      // O caso em que o número lido pode estar corrompido. Nunca esconder.
+      linhas.push('⚠️ Dígitos verificadores *não* fecham — confira no documento original.');
+    }
+  } else {
+    const sinal = ctx.direcao === 'ENTRADA' ? 'entrada' : 'saída';
+    if (ctx.data) partes.push(diaMes(ctx.data, timeZone));
+    linhas.push(`Entendi: ${sinal} de ${partes.join(' · ')}`);
+  }
+
+  if (ctx.valorDaLegenda !== undefined && ctx.valorDaLegenda !== ctx.amountCents) {
+    linhas.push('');
+    linhas.push(
+      `Você escreveu ${formatarValor(ctx.valorDaLegenda)} na legenda, e o documento diz ${formatarValor(ctx.amountCents)}. Mantive o seu — ajuste no painel se for o contrário.`,
+    );
+  }
 
   // Confiança baixa não pode ser escondida: a proposta é palpite, e dizer
   // isso é o que permite você olhar com atenção em vez de confirmar no

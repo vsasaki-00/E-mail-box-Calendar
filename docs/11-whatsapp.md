@@ -107,6 +107,80 @@ O lançamento criado carrega a origem na impressão digital
 (`whatsapp:<id da mensagem>`), o que impede dois cliques criarem dois
 lançamentos e impede colidir com uma linha do extrato do mesmo dia e valor.
 
+## PDF de cobrança: lido, e verificável
+
+Mandar o boleto em PDF pelo WhatsApp funciona, e ele volta lido:
+
+```
+Li o boleto: R$ 1.740,80 · Boleto Itaú · vence 10/09
+Dígitos verificadores fecham.
+```
+
+**Por que PDF veio antes de imagem.** A linha digitável tem **dígito
+verificador**: o app confere com mod10 e mod11. O valor não é palpite de
+modelo — ou o código fecha, ou o app diz que não fecha. É a única parte
+deste terreno onde a leitura é verificável, e por isso a confiança sobe para
+0,95 quando os DVs fecham (frase digitada nunca passa de 0,7).
+
+Quando **não** fecham, a resposta diz isso com todas as letras. Esconder
+seria transformar um número possivelmente corrompido em número confiável.
+
+Reaproveita inteira a extração que já lê boleto e PIX dos anexos dos seus
+e-mails — nada de motor novo.
+
+**O binário nunca é guardado.** É lido em memória e descartado; no banco
+ficam o valor extraído e a referência que já existia.
+
+**A legenda tem precedência.** Se você escreveu um valor e o documento diz
+outro, o seu vale — pode ser pagamento parcial ou com desconto. Mas a
+divergência é contada na resposta, nunca engolida:
+
+```
+Você escreveu R$ 1.200,00 na legenda, e o documento diz R$ 1.740,80.
+Mantive o seu — ajuste no painel se for o contrário.
+```
+
+Ler o arquivo é etapa **separada** de registrar a mensagem, pelo mesmo
+princípio que já valia para o texto: registrar o que chegou nunca falha por
+causa da interpretação. Se o download ou a leitura falharem, a linha
+continua lá com o motivo escrito.
+
+### Buscar uma URL que veio num webhook é a definição de SSRF
+
+Três travas, todas necessárias, em `core/whatsapp/midia.ts`:
+
+1. **Só host do Twilio.** A assinatura prova que a entrega é dele, mas não
+   prova para onde a URL aponta — um parâmetro é só texto. Sem esta trava,
+   quem controlasse o conteúdo do webhook faria o servidor buscar qualquer
+   endereço interno. Há teste para `169.254.169.254`, `localhost`, e para o
+   clássico `api.twilio.com.evil.com`.
+2. **Redirecionamento na mão.** A URL do Twilio responde 30x para um CDN;
+   seguir automático mandaria o cabeçalho `Authorization` — o Auth Token da
+   conta — para o destino. A segunda busca vai **sem credencial nenhuma**.
+3. **Teto de bytes e de tempo.** Isto roda dentro do webhook, que tem 30s
+   para responder. Um arquivo grande não pode virar timeout, que faria o
+   Twilio reentregar a mensagem inteira.
+
+### Configurar
+
+| Variável | De onde vem |
+| --- | --- |
+| `TWILIO_ACCOUNT_SID` | Console do Twilio → Account Info → Account SID |
+
+Sem ela o PDF chega e o app responde que não conseguiu baixar — a mensagem
+não se perde.
+
+### Verificado, e o que não foi
+
+Um boleto real gerado em PDF passa pela cadeia inteira e sai
+`R$ 1.740,80 · vence 10/09 · Boleto Itaú · dígitos conferem`. A trava de URL
+tem sete testes; a resposta, oito.
+
+**Não exercitado ponta a ponta**: o download em si contra o Twilio real.
+O ambiente de desenvolvimento derruba servidores de teste de longa duração,
+e a montagem com CA própria não chegou ao fim. As partes foram verificadas
+separadamente.
+
 ## Mídia: o que o app faz e o que não faz
 
 Foto de comprovante e PDF chegam e ficam **por referência** — o binário
