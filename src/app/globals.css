@@ -380,6 +380,20 @@ header.topo h1 {
   white-space: nowrap;
 }
 
+/* Item cujo detalhe PRECISA aparecer inteiro.
+   O `.titulo-item` normal corta com reticencias, o que serve para assunto de
+   e-mail — mas cortar justamente a mensagem de erro esconde a unica coisa que
+   a linha existia para dizer. */
+.titulo-item.solto {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.linha.alto {
+  align-items: flex-start;
+}
+
 .vazio {
   color: var(--muted-claro);
   font-size: 13px;

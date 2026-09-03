@@ -45,6 +45,13 @@ const SUBMENUS: Record<string, { href: string; rotulo: string }[]> = {
     { href: '/financeiro/analise', rotulo: 'Análise' },
     { href: '/financeiro/entrada', rotulo: 'Entrada' },
   ],
+  // Saúde do sync vive sob Conexões, e não como um 11º item na barra: a
+  // pergunta que ela responde ("por que esta caixa está desatualizada?") é
+  // sobre as conexões, e o lugar onde você já vai olhar quando ela aparece.
+  '/conexoes': [
+    { href: '/conexoes', rotulo: 'Contas' },
+    { href: '/conexoes/saude', rotulo: 'Saúde' },
+  ],
 };
 
 /** A seção principal de uma rota: /financeiro/extrato → /financeiro. */

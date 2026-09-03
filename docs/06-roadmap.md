@@ -255,7 +255,11 @@ Princípios inegociáveis desta fase:
   polling. **Bloqueado em configuração externa** (projeto no Google Cloud +
   tópico Pub/Sub), como o Twilio.
 - Notificações push para alertas críticos.
-- Observabilidade: métricas de sync, latência por provedor, alarmes operacionais.
+- ✅ **Observabilidade** — `/conexoes/saude`: taxa de sucesso, duração por
+  provedor e por caixa, voltas por dia e o estado agora. Detecta a corrida
+  que **morreu no meio** (o `SyncRun` que ficou aberto — foi o sintoma do
+  estouro de tempo na Vercel) e o dia em que o agendamento não rodou, que
+  não aparece em média nenhuma. Detalhes: [`13-saude.md`](13-saude.md).
 
 ---
 

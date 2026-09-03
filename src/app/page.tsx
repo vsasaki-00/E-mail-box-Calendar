@@ -176,7 +176,8 @@ function Painel({ dados, tz }: { dados: ControlTowerData; tz: string }) {
       <div className="grid" style={{ marginTop: 16 }}>
         <section className="card">
           <h2>
-            <IconeSaude size={13} /> Saúde das conexões
+            <IconeSaude size={13} />
+            <a href="/conexoes/saude">Saúde das conexões</a>
           </h2>
           {dados.connections.length === 0 ? (
             <Vazio>Nenhuma conta conectada ainda.</Vazio>
