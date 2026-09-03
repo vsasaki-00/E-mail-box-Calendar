@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import type { FinancialAccountKind } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { isBusinessContext } from '@/core/triage/businesses';
+import { planejarExclusao, resumirPreservados } from '@/core/finance/extrato/desfazer';
 
 /**
  * Editar uma conta: nome, banco, tipo, negocio.
@@ -116,4 +117,84 @@ export async function apagarRegra(regraId: string): Promise<ResultadoCategoria> 
   await prisma.categoryRule.deleteMany({ where: { id: regraId, userId: usuario.id } });
   revalidatePath('/financeiro/extrato');
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Desfazer uma importação
+// ---------------------------------------------------------------------------
+
+export interface ResultadoDesfazer {
+  ok: boolean;
+  erro?: string;
+  apagados?: number;
+  preservados?: { motivo: string; quantas: number }[];
+}
+
+/**
+ * O que aconteceria se você apagasse esta importação — sem apagar nada.
+ *
+ * Existe para o botão poder dizer o número antes do clique. "Apagar" sem
+ * dizer quanto é um pedido de confiança que esta tela não deveria fazer.
+ */
+export async function previaDeExclusao(importacaoId: string): Promise<ResultadoDesfazer> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+
+  const linhas = await prisma.ledgerEntry.findMany({
+    where: { statementId: importacaoId, userId: usuario.id },
+    select: { id: true, categorySource: true, matchStatus: true, notes: true },
+  });
+
+  const plano = planejarExclusao(linhas);
+  return { ok: true, apagados: plano.apagar.length, preservados: resumirPreservados(plano) };
+}
+
+/**
+ * Apaga a importação e os lançamentos que vieram dela.
+ *
+ * Numa transação só: metade apagada seria pior que nada, porque ninguém
+ * saberia qual metade.
+ *
+ * O que você tocou fica — categorizou, conciliou ou anotou. Um arquivo
+ * errado não desfaz trabalho seu, e a tela diz quantas linhas ficaram e por
+ * quê, em vez de sumir com elas em silêncio.
+ */
+export async function desfazerImportacao(importacaoId: string): Promise<ResultadoDesfazer> {
+  const usuario = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!usuario) return { ok: false, erro: 'Sem usuário' };
+
+  const importacao = await prisma.statementImport.findFirst({
+    where: { id: importacaoId, userId: usuario.id },
+    select: { id: true },
+  });
+  if (!importacao) return { ok: false, erro: 'Importação não encontrada' };
+
+  const linhas = await prisma.ledgerEntry.findMany({
+    where: { statementId: importacaoId, userId: usuario.id },
+    select: { id: true, categorySource: true, matchStatus: true, notes: true },
+  });
+  const plano = planejarExclusao(linhas);
+
+  try {
+    await prisma.$transaction([
+      prisma.ledgerEntry.deleteMany({ where: { id: { in: plano.apagar }, userId: usuario.id } }),
+      // A relação é `onDelete: SetNull`: apagar só a importação deixaria os
+      // lançamentos no lugar e sem origem. Por isso as linhas vão primeiro,
+      // e as preservadas ficam explicitamente soltas.
+      prisma.ledgerEntry.updateMany({
+        where: { statementId: importacaoId, userId: usuario.id },
+        data: { statementId: null },
+      }),
+      prisma.statementImport.delete({ where: { id: importacao.id } }),
+    ]);
+  } catch (erro) {
+    return { ok: false, erro: erro instanceof Error ? erro.message : String(erro) };
+  }
+
+  revalidatePath('/financeiro/extrato');
+  revalidatePath('/financeiro/conciliacao');
+  revalidatePath('/financeiro/analise');
+  revalidatePath('/financeiro');
+
+  return { ok: true, apagados: plano.apagar.length, preservados: resumirPreservados(plano) };
 }

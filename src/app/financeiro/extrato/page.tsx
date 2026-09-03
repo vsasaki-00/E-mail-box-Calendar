@@ -3,6 +3,7 @@ import { formatarValor } from '@/core/finance/format';
 import { DEFAULT_TIMEZONE, formatDateTime, formatInZone } from '@/core/time/zone';
 import { BUSINESS_CONTEXTS } from '@/core/triage/businesses';
 import { Nav } from '../../nav';
+import { BotaoDesfazerImportacao } from './desfazer-botao';
 import { ImportarExtrato } from './importar-form';
 import { EditarConta } from './conta-form';
 import { nomeDaInstituicao } from '@/core/finance/bancos';
@@ -185,6 +186,8 @@ export default async function PaginaExtrato({
                   {i.entriesCreated} novos
                   <br />
                   {i.entriesDuplicate} repetidos
+                  <br />
+                  <BotaoDesfazerImportacao id={i.id} arquivo={i.fileName ?? 'este arquivo'} />
                 </span>
               </div>
             ))

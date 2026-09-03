@@ -289,3 +289,43 @@ tabelas.
 - **7A — WhatsApp**: decisão de provedor pendente (Cloud API da Meta exige
   conta business verificada e número dedicado). Enquanto isso, encaminhar
   para uma caixa conectada já aciona a extração existente.
+
+## Desfazer uma importação
+
+Subiu o arquivo errado? O botão **apagar**, na lista de importações, desfaz.
+
+Duas armadilhas moram aqui, e as duas destroem em silêncio:
+
+**A relação é `onDelete: SetNull`.** Apagar só o `StatementImport` deixaria
+os lançamentos no lugar, órfãos, sem nem a origem para explicá-los — pior
+que não apagar: some o rastro e fica o dado. Por isso as linhas são apagadas
+explicitamente, na mesma transação. Metade apagada seria pior que nada,
+porque ninguém saberia qual metade.
+
+**Você pode ter mexido em linhas dessa importação.** Um arquivo errado não
+pode desfazer trabalho seu. Então fica o que você tocou:
+
+| a linha fica quando | porque |
+| --- | --- |
+| `categorySource = USER` | você definiu a categoria |
+| conciliação confirmada ou recusada | você decidiu |
+| tem anotação sua | você escreveu |
+
+Categoria vinda de **regra** ou de **heurística** não preserva: é palpite do
+app, e preservar palpite tornaria o desfazer inútil na prática — quase toda
+linha nasce categorizada por um dos dois.
+
+E o número aparece **antes** do clique:
+
+```
+Apagar 165 lançamentos de nubank-agosto.pdf?
+6 ficam — 3 você definiu a categoria, 2 você confirmou a conciliação,
+1 tem anotação sua.
+```
+
+"Apagar" sem dizer quantas é um pedido de confiança que uma tela de dinheiro
+não deveria fazer — ainda mais quando a resposta é 171.
+
+**Verificado** com uma importação semeada de 171 linhas, seis delas tocadas
+à mão: a prévia mostrou 165 e 6, o clique apagou 165, a importação sumiu e
+as 6 preservadas ficaram no banco, soltas de qualquer importação.

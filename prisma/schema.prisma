@@ -857,9 +857,9 @@ enum LedgerSource {
   OFX
   /// CSV do banco. Sem identidade propria: deduplicado por impressao digital.
   CSV
-  /// Digitado por voce.
   /// Extrato em PDF (Nubank exporta assim). Sem FITID, como o CSV.
   PDF
+  /// Digitado por voce, ou vindo de uma mensagem que voce confirmou.
   MANUAL
 }
 
