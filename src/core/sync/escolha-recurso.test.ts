@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escolherProximoRecurso } from './escolha-recurso';
+import { escolherProximoRecurso, intercalarPorConexao } from './escolha-recurso';
 
 /**
  * Qual recurso sincronizar quando so cabe um por requisicao.
@@ -51,5 +51,35 @@ describe('escolherProximoRecurso', () => {
 
   it('devolve undefined quando nao ha estado nenhum', () => {
     expect(escolherProximoRecurso([])).toBeUndefined();
+  });
+});
+
+describe('intercalarPorConexao', () => {
+  const fila = (...pares: [string, string][]) =>
+    pares.map(([connectionId, resource]) => ({ connectionId, resource }));
+
+  it('uma conta nao roda duas vezes antes de todo mundo rodar uma', () => {
+    // O caso de producao: 6 contas × 2 recursos, e o orcamento so da para
+    // alguns. Sem intercalar, as 5 primeiras vagas iam para 3 contas.
+    const ordenado = intercalarPorConexao(
+      fila(['a', 'MAIL'], ['a', 'CALENDAR'], ['b', 'MAIL'], ['b', 'CALENDAR'], ['c', 'MAIL']),
+    );
+    expect(ordenado.map((e) => e.connectionId)).toEqual(['a', 'b', 'c', 'a', 'b']);
+  });
+
+  it('preserva a ordem entre contas: a mais vencida continua na frente', () => {
+    const ordenado = intercalarPorConexao(fila(['z', 'MAIL'], ['a', 'MAIL']));
+    expect(ordenado.map((e) => e.connectionId)).toEqual(['z', 'a']);
+  });
+
+  it('nao perde nem duplica nada', () => {
+    const entrada = fila(['a', 'MAIL'], ['a', 'CALENDAR'], ['a', 'CONTACTS'], ['b', 'MAIL']);
+    const saida = intercalarPorConexao(entrada);
+    expect(saida).toHaveLength(entrada.length);
+    expect(new Set(saida)).toEqual(new Set(entrada));
+  });
+
+  it('lista vazia nao trava', () => {
+    expect(intercalarPorConexao([])).toEqual([]);
   });
 });

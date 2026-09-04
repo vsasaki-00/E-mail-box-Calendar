@@ -10,6 +10,7 @@ import {
 } from '@/lib/connectors/types';
 import { decideAfterError, decideAfterSuccess } from './backoff';
 import { podeIniciarRecurso } from './orcamento';
+import { intercalarPorConexao } from './escolha-recurso';
 import {
   persistCalendars,
   persistEvents,
@@ -168,6 +169,36 @@ async function containersConhecidos(
 }
 
 /**
+ * Quanto tempo uma execucao segura o recurso para si.
+ *
+ * Curto o bastante para o recurso voltar a ser tentado dentro da mesma janela
+ * de sincronizacao (o laco do agendamento roda ate 15 min), e longo o
+ * bastante para nao voltar na chamada seguinte e travar tudo de novo.
+ */
+export const ARRENDAMENTO_MS = 10 * 60_000;
+
+/**
+ * Marca o recurso como "sendo executado agora", empurrando o `nextRunAt`.
+ *
+ * O sucesso e a falha regravam esse campo logo em seguida, entao o
+ * arrendamento so vale de fato quando a execucao morre SEM ESCREVER NADA — o
+ * caso da funcao serverless morta no limite de 60s da Vercel.
+ *
+ * Sem ele, o recurso morto continua com `nextRunAt` no passado, volta a ser o
+ * MAIS VENCIDO da fila na chamada seguinte e e escolhido primeiro outra vez.
+ * Para sempre. Foi o que aconteceu em producao: um recurso que nao cabe em
+ * 60s travou a cabeca da fila e cinco caixas ficaram 12 h sem sincronizar.
+ * Com o arrendamento, quem nao termina espera a vez como todo mundo, em vez
+ * de bloquear a fila inteira.
+ */
+export async function arrendarRecurso(syncStateId: string, now = new Date()): Promise<void> {
+  await prisma.syncState.update({
+    where: { id: syncStateId },
+    data: { status: 'RUNNING', nextRunAt: new Date(now.getTime() + ARRENDAMENTO_MS) },
+  });
+}
+
+/**
  * Executa um recurso de uma conexao e persiste o resultado.
  *
  * O SyncRun e aberto antes e fechado sempre — inclusive em falha — porque e ele
@@ -189,7 +220,8 @@ export async function runSync(
   const run = await prisma.syncRun.create({
     data: { connectionId: connection.id, resource, startedAt: now },
   });
-  await prisma.syncState.update({ where: { id: syncState.id }, data: { status: 'RUNNING' } });
+
+  await arrendarRecurso(syncState.id, now);
 
   try {
     const keyring = keyringFromEnv();
@@ -355,7 +387,10 @@ export async function runSyncCycle(
   now = new Date(),
   options: CicloOptions = {},
 ): Promise<SyncResult[]> {
-  const due = await findDueSyncStates(now);
+  // Intercalado por conta: com orcamento apertado, a ordem pura de "mais
+  // vencido" deixa uma conta consumir as vagas todas. Ver
+  // `intercalarPorConexao`.
+  const due = intercalarPorConexao(await findDueSyncStates(now));
   const results: SyncResult[] = [];
   const prazo = options.orcamentoMs === undefined ? undefined : Date.now() + options.orcamentoMs;
 

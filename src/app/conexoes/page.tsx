@@ -7,6 +7,7 @@ import { SincronizacaoAutomatica } from './automatico';
 import { ConfiguracaoDoBanco } from './config-banco';
 import { FormularioImapCaldav } from './imap-form';
 import { Nav } from '../nav';
+import { coberturaDaUltimaVolta } from '@/core/sync/cobertura';
 import {
   estadoDaConexao,
   frescorDaConexao,
@@ -56,6 +57,8 @@ export default async function PaginaConexoes({
       })
     : [];
   const agora = new Date();
+  // Quanto da ultima volta aconteceu, e nao so quando ela aconteceu.
+  const cobertura = coberturaDaUltimaVolta(conexoes);
 
   const googleConfigurado = Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
@@ -162,17 +165,9 @@ export default async function PaginaConexoes({
             </div>
           </div>
           <SincronizacaoAutomatica
-            ultimoSync={
-              // O mais RECENTE entre as contas: aqui a pergunta e "o
-              // agendamento rodou?", e uma volta que pegou qualquer conta
-              // responde que sim. Quem responde "esta conta esta atual?" e a
-              // linha da conta, logo abaixo.
-              conexoes.reduce<Date | null>(
-                (maior, c) =>
-                  c.lastSyncAt && (!maior || c.lastSyncAt > maior) ? c.lastSyncAt : maior,
-                null,
-              )
-            }
+            ultimoSync={cobertura.ultima}
+            alcancadas={cobertura.alcancadas}
+            total={cobertura.total}
             timeZone={tz}
           />
           {conexoes.length === 0 ? (

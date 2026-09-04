@@ -259,6 +259,29 @@ no lugar do JSON. Com o prazo, a resposta vira `{"estourou": true,
 "pendentes": N}` e o laço continua. Nada se perde no estouro: cada página já
 foi gravada com seu cursor.
 
+**A fila é arrendada e intercalada, senão uma caixa trava as outras.** O
+`nextRunAt` é empurrado para 10 minutos à frente *antes* de o recurso rodar
+(`arrendarRecurso`). Sucesso e falha regravam esse campo logo depois, então o
+arrendamento só vale quando a execução morre **sem escrever nada** — que é
+exatamente o que a Vercel faz ao matar a função nos 60s. Sem ele, o recurso
+morto continua com `nextRunAt` no passado, volta a ser o mais vencido da fila
+na chamada seguinte e é escolhido primeiro outra vez, para sempre.
+
+Isso aconteceu em produção: um recurso que não cabe em 60s travou a cabeça da
+fila e **cinco caixas de seis ficaram 12 h sem sincronizar** — a volta das 07h
+sincronizou uma conta só. O arrendamento tira o travado da frente; o
+`intercalarPorConexao` garante o resto, espalhando o orçamento entre as contas
+em rodadas, para que ninguém repita antes de todo mundo ter a sua vez:
+
+```
+fila crua          lenta/MAIL → lenta/CALENDAR → b/MAIL → b/CALENDAR → c/MAIL
+fila intercalada   lenta/MAIL → b/MAIL → c/MAIL → lenta/CALENDAR → b/CALENDAR
+```
+
+E a faixa em Conexões passa a dizer **quantas** caixas a última volta pegou, e
+não só quando ela aconteceu: "último ciclo em 04/09, 07:07" era verdade e
+escondia que só uma das seis tinha sido sincronizada.
+
 **Uma volta que falha não derruba o job.** O sync é retomável por desenho,
 então desistir na primeira falha jogaria fora as voltas restantes por causa
 de um 504 isolado — ou de um deploy acontecendo no meio da execução, que foi
