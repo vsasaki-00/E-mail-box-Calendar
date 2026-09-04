@@ -93,9 +93,18 @@ jobs:
 
           case "$LIMPA" in
             postgres://*|postgresql://*) ;;
-            *) # Os 12 primeiros caracteres são o esquema, nunca a credencial —
-               # e é exatamente o que falta ver para entender o que se colou.
-               echo "::error::SUPABASE_DB_URL não começa com postgresql:// — recebi algo que começa com \"$(printf '%s' "$LIMPA" | cut -c1-12)…\". Formato esperado: postgresql://USUARIO.REF:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres (Session pooler; o host direto db.REF.supabase.co não serve, só tem IPv6)."
+            *) # NUNCA ECOAR O VALOR.
+               #
+               # A versão anterior imprimia os 12 primeiros caracteres, com o
+               # argumento de que "o começo é o esquema, nunca a credencial".
+               # O argumento só vale se o valor FOR uma URL — e este ramo existe
+               # justamente para quando ele não é. Quando alguém cola só a
+               # senha, os 12 primeiros caracteres SÃO a senha, e ela foi parar
+               # no log de um repositório público.
+               #
+               # A forma descreve o suficiente para diagnosticar: tamanho, se
+               # tem "@", se tem "://". Nada disso identifica o segredo.
+               echo "::error::SUPABASE_DB_URL não é uma URI de conexão. Recebi $(printf '%s' "$LIMPA" | wc -c | tr -d ' ') caracteres, $(case "$LIMPA" in *://*) echo 'com';; *) echo 'SEM';; esac) esquema e $(case "$LIMPA" in *@*) echo 'com';; *) echo 'SEM';; esac) arroba — parece a SENHA sozinha, e não a string inteira. Formato: postgresql://USUARIO.REF:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres (Session pooler; o host direto db.REF.supabase.co não serve, só tem IPv6)."
                exit 1 ;;
           esac
           # O resto do job usa a versão limpa.
