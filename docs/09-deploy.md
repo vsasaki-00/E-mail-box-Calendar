@@ -282,6 +282,46 @@ E a faixa em Conexões passa a dizer **quantas** caixas a última volta pegou, e
 não só quando ela aconteceu: "último ciclo em 04/09, 07:07" era verdade e
 escondia que só uma das seis tinha sido sincronizada.
 
+**A trava de instância, e por que o pool estourava.** As duas rotas de sync
+respondem por `Promise.race` com um prazo — e quando o prazo vence, a resposta
+sai e **o trabalho continua rodando**, porque não há como cancelar uma promise.
+Isso é deliberado (o que já foi gravado não se perde), mas quem chama volta
+imediatamente para a próxima volta, a mesma instância quente atende, e passam
+a existir dois ciclos gravando ao mesmo tempo. Depois três. O pool do Prisma é
+por instância e tem 5 conexões:
+
+```
+Invalid `prisma.calendarSource.upsert()` invocation:
+Timed out fetching a new connection from the connection pool
+(Current connection pool timeout: 20, connection limit: 5)
+```
+
+O erro aparece em quem chegou por último — uma consulta banal, no começo do
+trabalho — e não em quem causou; por isso engana. `core/sync/em-andamento.ts`
+deixa um ciclo por instância, e a trava é liberada pelo **fim do trabalho**,
+não pelo fim da resposta: é o trabalho que segura conexão. A rota responde
+`{"ocupado": true}` e o laço do agendamento espera 20 s — insistir sem pausa
+recriaria o empilhamento.
+
+**O calendário do Google não tinha orçamento de tempo.** Ele percorria todos
+os calendários e todas as páginas de cada um numa chamada só (até 60 páginas
+por calendário), sem nenhum limite que a função serverless respeitasse — o
+único caminho do app capaz de rodar indefinidamente. O conector Microsoft já
+resolvia isso com `GRAPH_RUN_BUDGET_MS`; o Google ganhou o mesmo tratamento em
+`GOOGLE_RUN_BUDGET_MS` (6 s por padrão), com três regras que se sustentam
+juntas:
+
+- **quem nunca sincronizou vai na frente** — é onde está o trabalho de verdade;
+  um calendário com token pede só as mudanças e custa quase nada;
+- **toda volta avança pelo menos um calendário**, mesmo com o orçamento vencido
+  na entrada: um ciclo que nunca avança é pior que um que estoura;
+- **adiado não é pendente** — um calendário com token válido que ficou para a
+  próxima volta está atual até o token dele. Marcá-lo como pendente faria o
+  motor voltar imediatamente, para sempre.
+
+O progresso parcial viaja em `nextPageToken`, nunca em `cursor`: para o motor,
+`cursor` significa "terminei".
+
 **Uma volta que falha não derruba o job.** O sync é retomável por desenho,
 então desistir na primeira falha jogaria fora as voltas restantes por causa
 de um 504 isolado — ou de um deploy acontecendo no meio da execução, que foi

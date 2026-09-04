@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { runSync } from '@/core/sync/engine';
 import { escolherProximoRecurso } from '@/core/sync/escolha-recurso';
+import { sair, tentarEntrar } from '@/core/sync/em-andamento';
 import { getConnector } from '@/lib/connectors/registry';
 
 /**
@@ -133,8 +134,29 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
     // texto e o codigo FUNCTION_INVOCATION_TIMEOUT, que nao diz o que estava
     // acontecendo. Respondendo antes, a mensagem nomeia o recurso e o
     // tempo, e o trabalho ja persistido (pagina a pagina) nao se perde.
+    // Um sync por instancia. A volta anterior continua rodando depois de a
+    // resposta sair pelo prazo, e o navegador ja pede a proxima: sem a trava,
+    // as duas dividem as 5 conexoes do pool e a segunda morre com "Timed out
+    // fetching a new connection". Ver core/sync/em-andamento.ts
+    if (!tentarEntrar()) {
+      return NextResponse.json({
+        results: [
+          {
+            resource: primeiro.resource,
+            // PARTIAL faz o navegador voltar daqui a pouco, que e exatamente
+            // o comportamento certo: o trabalho esta acontecendo, so nao e
+            // esta requisicao que o esta fazendo.
+            outcome: 'PARTIAL',
+            counts: { created: 0, updated: 0, deleted: 0 },
+            errorMessage: 'A volta anterior ainda está rodando; esta continua dela.',
+          },
+        ],
+      });
+    }
+
+    const trabalho = runSync(primeiro, new Date()).finally(sair);
     const resultado = await Promise.race([
-      runSync(primeiro, new Date()),
+      trabalho,
       new Promise<'ESTOUROU'>((resolve) => setTimeout(() => resolve('ESTOUROU'), PRAZO_RESPOSTA_MS)),
     ]);
 

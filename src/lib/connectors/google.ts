@@ -91,6 +91,26 @@ const MAIL_PAGE_SIZE = 100;
 const CALENDAR_PAGE_SIZE = 250;
 /** Teto de paginas por calendario numa unica execucao, contra loop infinito. */
 const MAX_CALENDAR_PAGES = 60;
+
+/**
+ * Orcamento de TEMPO por chamada de fetch, em ms.
+ *
+ * Contar paginas nao basta: o teto e POR CALENDARIO, e uma conta com seis
+ * calendarios fazia 6x o trabalho previsto — sem nenhum limite que a funcao
+ * serverless respeitasse. Era o unico caminho do app capaz de rodar
+ * indefinidamente, e foi o que apareceu em producao como
+ * FUNCTION_INVOCATION_TIMEOUT e, depois, como pool de conexoes esgotado (a
+ * execucao abandonada continua gravando enquanto a proxima ja comecou).
+ *
+ * O conector Microsoft ja fazia assim; este ficou para tras.
+ */
+function orcamentoMs(): number {
+  // Lido a cada chamada, e nao no carregamento do modulo, para o worker local
+  // poder ser generoso sem rebuild e o teste conseguir exercitar o estouro.
+  // 6s cobre so a BUSCA: a gravacao no Postgres vem depois e, numa pagina
+  // cheia, custa mais que a propria busca.
+  return envNumero(process.env.GOOGLE_RUN_BUDGET_MS, 6_000);
+}
 /** Requisicoes simultaneas ao buscar metadados. A quota do Gmail e por unidade. */
 const METADATA_CONCURRENCY = 8;
 
@@ -321,26 +341,82 @@ export const googleConnector: Connector = {
     // primeiro full sync fica valendo para sempre. Quando ela muda, o unico
     // caminho e descartar os syncTokens e refazer. Ver janela-calendario.ts.
     const assinatura = assinaturaJanela();
+    // `pageToken` primeiro: e por ele que volta o progresso de uma volta
+    // interrompida. Ler so o `cursor` faria a retomada recomecar do zero — o
+    // progresso parcial seria gravado e nunca lido.
+    const anterior = options.pageToken ?? options.cursor;
     const janelaCursor =
-      lerJanelaDoCursor(options.cursor) === assinatura
-        ? parseContainerCursor(options.cursor)
-        : {};
+      lerJanelaDoCursor(anterior) === assinatura ? parseContainerCursor(anterior) : {};
 
     const itens: RawEvent[] = [];
     const removidos: string[] = [];
     const tokens: Record<string, string> = {};
+    let incompleto = false;
+    const prazo = Date.now() + orcamentoMs();
+    let primeiro = true;
 
-    for (const calendario of calendarios) {
+    // Quem nunca sincronizou vai na frente. E onde esta o trabalho de
+    // verdade: um calendario com token pede so as mudancas e custa quase
+    // nada, enquanto um sem token precisa varrer a janela inteira. Sem esta
+    // ordem, a garantia de progresso abaixo seria gasta repetidamente no
+    // mesmo calendario barato e a fila de full syncs nunca andaria.
+    const ordenados = [...calendarios].sort(
+      (a, b) =>
+        Number(Boolean(janelaCursor[a.providerId])) -
+        Number(Boolean(janelaCursor[b.providerId])),
+    );
+
+    for (const calendario of ordenados) {
       const tokenAnterior = janelaCursor[calendario.providerId];
+
+      // Acabou o tempo: nao comeca outro calendario. O token que este
+      // calendario ja tinha e PRESERVADO — sem isso, parar no meio jogaria
+      // fora o progresso dos calendarios que nao chegaram a ser visitados, e
+      // a proxima volta refaria tudo do zero, para sempre.
+      //
+      // `primeiro` garante que toda volta avanca pelo menos um calendario,
+      // mesmo com o orcamento ja vencido na entrada. Um ciclo que nunca
+      // avanca e pior que um que estoura: o estouro pelo menos aparece.
+      if (!primeiro && Date.now() >= prazo) {
+        if (tokenAnterior) {
+          tokens[calendario.providerId] = tokenAnterior;
+          // Adiado NAO e pendente. Este calendario esta atual ate o token
+          // dele; pegar as mudancas recentes pode esperar o proximo ciclo.
+          // Marcar incompleto aqui faria o motor voltar imediatamente, para
+          // sempre, sem nunca poder terminar — que e o laco infinito que
+          // este orcamento existe para evitar.
+        } else {
+          incompleto = true;
+        }
+        continue;
+      }
+      primeiro = false;
+
       const resultado = await fetchEventsDoCalendario(
         ctx,
         calendario.providerId,
         tokenAnterior,
         options.window,
+        prazo,
       );
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
       if (resultado.syncToken) tokens[calendario.providerId] = resultado.syncToken;
+      else if (tokenAnterior) tokens[calendario.providerId] = tokenAnterior;
+      if (resultado.incompleto) incompleto = true;
+    }
+
+    // Sobrou trabalho: o progresso viaja em `nextPageToken`, e nao em
+    // `cursor`. E o mesmo protocolo do conector Microsoft — o motor le
+    // `nextPageToken` como "volte imediatamente e continue daqui", enquanto
+    // `cursor` significa "terminei". Trocar os dois faria um sync
+    // interrompido ser dado como completo.
+    if (incompleto) {
+      return {
+        items: itens,
+        deletedProviderIds: removidos,
+        nextPageToken: serializeContainerCursor(tokens, assinatura),
+      };
     }
 
     return {
@@ -657,7 +733,13 @@ async function fetchEventsDoCalendario(
   calendarId: string,
   syncTokenAnterior: string | undefined,
   janela: FetchOptions['window'],
-): Promise<{ itens: RawEvent[]; removidos: string[]; syncToken?: string }> {
+  prazo: number,
+): Promise<{
+  itens: RawEvent[];
+  removidos: string[];
+  syncToken?: string;
+  incompleto?: boolean;
+}> {
   const itens: RawEvent[] = [];
   const removidos: string[] = [];
 
@@ -713,14 +795,21 @@ async function fetchEventsDoCalendario(
     pageToken = resposta.nextPageToken;
     if (resposta.nextSyncToken) syncToken = resposta.nextSyncToken;
     paginas += 1;
-  } while (pageToken && paginas < MAX_CALENDAR_PAGES);
+  } while (pageToken && paginas < MAX_CALENDAR_PAGES && Date.now() < prazo);
 
   if (pageToken) {
-    throw new ConnectorError(
-      'TRANSIENT',
-      `Calendario ${calendarId} excedeu ${MAX_CALENDAR_PAGES} paginas numa execucao; ` +
-        'reduza SYNC_CALENDAR_FUTURE_MONTHS',
-    );
+    // Parar no meio da paginacao NAO e erro, e devolver o controle antes de
+    // a plataforma cortar a funcao. O preco e refazer este calendario na
+    // proxima volta: o `nextSyncToken` do Google so vem na ultima pagina,
+    // entao nao ha o que guardar aqui. O token ANTERIOR (se havia) e
+    // preservado por quem chama, e continua valido — a proxima volta retoma
+    // dele em vez de recomecar do zero.
+    //
+    // Retomar exatamente nesta pagina exigiria guardar o `pageToken`, e as
+    // regras do Google para combinar `pageToken` com `syncToken` nao dao
+    // para verificar sem falar com a API de verdade. Preferi o caminho que
+    // eu consigo provar que esta certo.
+    return { itens, removidos, incompleto: true };
   }
 
   return { itens, removidos, syncToken };

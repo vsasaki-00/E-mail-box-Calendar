@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import { contarSyncStatesVencidos, runSyncCycle } from '@/core/sync/engine';
 import { runAutomationCycle } from '@/core/pipeline/run';
+import { sair, tentarEntrar } from '@/core/sync/em-andamento';
 
 /**
  * Um ciclo de sincronização, disparado de fora. Ver docs/09-deploy.md
@@ -80,11 +81,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     | { erro: string };
   let estourouOPrazo = false;
 
+  // Um ciclo por instancia. Sem isto, a volta anterior — que continua rodando
+  // depois de a resposta sair pelo prazo — divide as 5 conexoes do pool com
+  // esta, e a perdedora morre com "Timed out fetching a new connection".
+  // Ver core/sync/em-andamento.ts
+  if (!tentarEntrar()) {
+    // `sync` continua sendo um OBJETO: quem chama faz `jq '.sync.erro'`, e
+    // uma string ali quebraria o laco do agendamento com erro de jq — um
+    // conserto virando falha nova.
+    return NextResponse.json({
+      ok: true,
+      ocupado: true,
+      sync: { ocupado: true, pendentes: await contarSyncStatesVencidos() },
+      automacao: 'pulada',
+    });
+  }
+
   try {
     const ESTOUROU = Symbol('estourou');
     let alarme: ReturnType<typeof setTimeout> | undefined;
+    // A trava e liberada pelo fim do TRABALHO, nao pelo fim da resposta: e o
+    // trabalho que segura conexao do pool.
+    const trabalho = runSyncCycle(new Date(), { orcamentoMs: ORCAMENTO_SYNC_MS }).finally(sair);
     const resultados = await Promise.race([
-      runSyncCycle(new Date(), { orcamentoMs: ORCAMENTO_SYNC_MS }),
+      trabalho,
       new Promise<typeof ESTOUROU>((resolve) => {
         alarme = setTimeout(() => resolve(ESTOUROU), PRAZO_RESPOSTA_MS);
       }),

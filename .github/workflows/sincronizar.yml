@@ -107,6 +107,17 @@ jobs:
             # Só contagens saem no log — nunca assunto, remetente ou corpo.
             echo "volta $volta: $(echo "$resposta" | jq -c '.sync')"
 
+            # A instância ainda está terminando a volta anterior: o trabalho
+            # está acontecendo, só não nesta chamada. Insistir sem pausa faz
+            # a mesma instância receber a próxima chamada no mesmo estado —
+            # e era assim que dois ciclos empilhados esgotavam as 5 conexões
+            # do pool. Esperar é o que resolve.
+            if [ "$(echo "$resposta" | jq -r '.ocupado // false')" = "true" ]; then
+              echo "volta $volta: instância ocupada; esperando a volta anterior terminar."
+              sleep 20
+              continue
+            fi
+
             erro=$(echo "$resposta" | jq -r '.sync.erro // empty')
             if [ -n "$erro" ]; then
               echo "::error::Ciclo de sync falhou: $erro"
