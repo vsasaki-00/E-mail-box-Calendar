@@ -1,0 +1,147 @@
+# O BACKUP DIÁRIO DO BANCO — com restore de teste em TODA execução.
+#
+# O mesmo rito da Torre, da Croquia e do Escutia, apontado ao banco do
+# Meridiano. A Torre já cobrava esta cópia — o serviço e a política existem no
+# catálogo desde que o app entrou — e a resposta era sempre a mesma: "Nenhuma
+# cópia reportada ainda". O alerta estava certo; faltava este arquivo.
+#
+# Aqui moram as credenciais OAuth de e-mail e o histórico das caixas. Perder as
+# credenciais custa reconectar cada conta à mão; perder o histórico custa o que
+# não volta — a caixa do provedor não guarda o que este app já processou e
+# organizou.
+#
+# O dump vai para os artifacts do próprio repositório (público, e por isso o
+# ARTIFACT é o único lugar do fluxo que carrega dado: artifact não é público,
+# mesmo em repositório que é). Cada execução restaura o dump numa base
+# descartável antes de guardar — backup que nunca foi restaurado não é backup,
+# então aqui o teste não é evento: é parte do rito.
+#
+# A URL é a do SESSION POOLER (aws-0-sa-east-1, porta 5432): o host direto do
+# projeto só tem IPv6, e o runner do GitHub não alcança IPv6. O cluster foi
+# conferido conectando com senha falsa — o certo pede a senha, o errado diz
+# "tenant not found".
+#
+# SUPABASE_DB_URL aponta para o projeto `Meridiano` (emczaelrtidkicabrllg). Não
+# é a mesma variável que o app usa: DATABASE_URL serve a aplicação, esta serve
+# o dump, e separá-las permite dar a esta um usuário só de leitura.
+name: Backup do banco
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 06:00 em São Paulo
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read   # somar os próprios artifacts; sem isto, 403
+    services:
+      # A base descartável do teste. Morre com o job — é o ponto.
+      restauracao:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restauracao
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - name: Cliente PostgreSQL 17 (o servidor é 17.6; cliente menor recusa)
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y postgresql-common >/dev/null
+          yes '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh >/dev/null
+          sudo apt-get -qq install -y postgresql-client-17 >/dev/null
+          # O runner já vem com o cliente 16 em /usr/bin, e o wrapper do
+          # postgresql-common continuava escolhendo ele — contra servidor 17,
+          # pg_dump aborta. O PATH explícito tira a escolha do wrapper.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Dump (schema public)
+        run: |
+          inicio=$SECONDS
+          pg_dump "${{ secrets.SUPABASE_DB_URL }}" \
+            --format=custom --no-owner --no-privileges \
+            --schema=public \
+            --file="banco-meridiano-$(date +%Y%m%d).dump"
+          echo "DUMP_SEGUNDOS=$((SECONDS-inicio))" >> "$GITHUB_ENV"
+          ls -lh banco-meridiano-*.dump
+
+      - name: Restore de teste na base descartável
+        run: |
+          URL_TESTE="postgresql://postgres:restauracao@localhost:5432/postgres"
+          # Papéis que o dump pressupõe e uma base crua não tem. Todo projeto
+          # Supabase carrega GRANTs para anon/authenticated no schema public,
+          # mesmo quando o app não usa o Auth — sem esses papéis, o pg_restore
+          # erra em cada GRANT e sai com status 1. Um restore que "falha por
+          # bobagem" ensina a ignorar a falha que importa.
+          psql "$URL_TESTE" -q -c "create role anon; create role authenticated; create role service_role; create role supabase_auth_admin;" || true
+          # Extensões no schema `extensions`, a convenção do Supabase — é assim
+          # que o dump qualifica as chamadas (extensions.uuid_generate_v4()).
+          psql "$URL_TESTE" -q -c 'create schema if not exists extensions; create extension if not exists "uuid-ossp" schema extensions; create extension if not exists pgcrypto schema extensions;'
+          # E o `public` SAI antes do restore: o dump traz o CREATE SCHEMA dele,
+          # e uma base crua já nasce com um. A primeira execução falhou aqui —
+          # erro benigno, mas pg_restore sai com status 1 e um restore que
+          # "falha por bobagem" ensina a ignorar a falha que importa.
+          psql "$URL_TESTE" -q -c 'drop schema if exists public cascade;'
+          inicio=$SECONDS
+          pg_restore --dbname="$URL_TESTE" --no-owner --no-privileges banco-meridiano-*.dump
+          echo "RESTORE_SEGUNDOS=$((SECONDS-inicio))" >> "$GITHUB_ENV"
+
+      - name: Prova do restore (contagem, não fé)
+        run: |
+          URL_TESTE="postgresql://postgres:restauracao@localhost:5432/postgres"
+          TABELAS=$(psql "$URL_TESTE" -tAc "select count(*) from information_schema.tables where table_schema in ('public','auth','storage')")
+          LINHAS=$(psql "$URL_TESTE" -tAc "select coalesce(sum(n_live_tup),0) from pg_stat_user_tables")
+          echo "tabelas restauradas: $TABELAS · linhas (estimadas): $LINHAS"
+          echo "dump: ${DUMP_SEGUNDOS}s · restore: ${RESTORE_SEGUNDOS}s"
+          test "$TABELAS" -gt 0
+          # A prova viaja para a Torre no passo seguinte: o registro nasce com
+          # ela, e não com um "existe um arquivo de 12 MB".
+          echo "TABELAS=$TABELAS" >> "$GITHUB_ENV"
+          echo "LINHAS=$LINHAS" >> "$GITHUB_ENV"
+
+      - name: Guardar o dump (30 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: banco-meridiano-${{ github.run_id }}
+          path: 'banco-meridiano-*.dump'
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Reportar à Torre (a cópia e a prova)
+        env:
+          TORRE_URL: ${{ secrets.TORRE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # O GITHUB_TOKEN da própria execução já lê os artifacts DESTE
+          # repositório — então quem sabe quanto a prateleira ocupa é quem
+          # escreveu nela. Poupa à Torre guardar uma credencial só para somar.
+          BYTES=$(gh api "repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+                    --jq '[.artifacts[] | select(.expired == false) | .size_in_bytes] | add // 0' || echo 0)
+          ARQUIVO=$(ls banco-meridiano-*.dump 2>/dev/null | head -1)
+          TAMANHO=$(stat -c%s "$ARQUIVO")
+
+          jq -n --arg app "meridiano" --arg ref "$ARQUIVO" --arg em "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --argjson tam "$TAMANHO" --argjson bytes "$BYTES" \
+                --arg repo "${{ github.repository }}" \
+                --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+                --argjson tabelas "${TABELAS:-0}" --argjson linhas "${LINHAS:-0}" \
+                --argjson dumpS "${DUMP_SEGUNDOS:-0}" --argjson restoreS "${RESTORE_SEGUNDOS:-0}" '
+            { appId: (if $app == "" then null else $app end),
+              referencia: $ref, feitoEm: $em, tamanhoBytes: $tam,
+              prova: { tabelas: $tabelas, linhas: $linhas, dumpSegundos: $dumpS, restoreSegundos: $restoreS, url: $url },
+              armazem: { repo: $repo, bytes: $bytes, limiteBytes: 524288000 } }' > corpo.json
+
+          curl -sS -X POST "$TORRE_URL/api/backups/registrar" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'content-type: application/json' \
+            --data @corpo.json -w '\nTorre respondeu %{http_code}\n' --fail-with-body
