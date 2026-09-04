@@ -28,6 +28,9 @@ const PUBLICO = [
   '/api/whatsapp/webhook',
   // Twilio: mesma lógica, assinatura HMAC-SHA1 com o Auth Token.
   '/api/whatsapp/twilio',
+  // Sonda de saúde: quem pergunta é a Torre de Controle, de fora e sem cookie.
+  // Ela não devolve dado nenhum do app — só se o banco respondeu.
+  '/api/saude',
 ];
 
 export async function middleware(request: NextRequest) {
