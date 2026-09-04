@@ -72,12 +72,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // morta para sempre — e o erro aparecia na consulta mais banal do próximo
   // sync, longe de quem causou.
   //
-  // Agora o orçamento (25s) impede PEGAR recurso novo, e a rota espera o
-  // recurso em andamento terminar. O teto é 25s + um recurso, e um recurso é
-  // limitado pelo orçamento do conector (6s de busca) mais a gravação de uma
-  // página — folgado dentro dos 60s. Se um dia estourar mesmo assim, o preço
-  // é um 504 feio numa volta, e não um pool furado para sempre.
-  const ORCAMENTO_SYNC_MS = 25_000;
+  // Agora o orçamento impede PEGAR recurso novo, e a rota espera o recurso em
+  // andamento terminar. O teto é o orçamento MAIS um recurso — e é por isso
+  // que ele é 15s e não 25s: 25 + um recurso lento não cabia, e a conta toda
+  // virava FUNCTION_INVOCATION_TIMEOUT. Um recurso é limitado pelo orçamento
+  // do conector (6s de busca) mais a gravação de uma página de 25 itens.
+  const ORCAMENTO_SYNC_MS = 15_000;
+
+  // Onde a GRAVACAO para, mesmo no meio de uma pagina. Deixa ~15s de folga
+  // sobre os 60s da plataforma para a reconciliacao e a resposta.
+  const PRAZO_DE_GRAVACAO_MS = 45_000;
 
   // Sync e automação são relatados separados: se a automação falhar por falta
   // de ANTHROPIC_API_KEY, o sync ainda rodou, e a resposta precisa dizer isso
@@ -104,6 +108,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const resultados = await runSyncCycle(new Date(), {
       orcamentoMs: ORCAMENTO_SYNC_MS,
+      // O freio de dentro: nem o recurso que ja comecou pode passar disto.
+      prazoDeGravacaoEm: inicio + PRAZO_DE_GRAVACAO_MS,
     }).finally(sair);
 
     // O número que interessa a quem agenda de fora: enquanto for maior que

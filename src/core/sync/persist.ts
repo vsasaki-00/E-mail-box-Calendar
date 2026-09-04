@@ -27,6 +27,16 @@ export interface PersistCounts {
    * mesma tela, e pedem consertos opostos. Contar separa os dois.
    */
   skippedUnknownContainer: number;
+  /**
+   * A gravação parou no meio por falta de tempo.
+   *
+   * Interromper aqui é seguro — e essa é a razão de existir: toda escrita é
+   * idempotente (upsert por chave do provedor) e o cursor da página só avança
+   * no fim. Parar no meio custa refazer a página na volta seguinte, e nada
+   * mais. O que NÃO é seguro é avançar o cursor com metade da página gravada,
+   * então quem lê isto trata a volta como parcial.
+   */
+  interrompido?: boolean;
 }
 
 const VAZIO: PersistCounts = { created: 0, updated: 0, deleted: 0, skippedUnknownContainer: 0 };
@@ -161,14 +171,29 @@ async function reconciliarUnifiedItems(ids: string[]): Promise<void> {
   ]);
 }
 
+/**
+ * Hora de parar de gravar?
+ *
+ * O primeiro item passa SEMPRE, mesmo com o prazo ja vencido: uma volta que
+ * grava zero itens e sempre marcada como parcial pede outra volta igual a
+ * ela, e o sync nunca sai do lugar. Progresso lento termina; progresso zero,
+ * nao.
+ */
+export function acabouOTempo(prazoEm: number | undefined, jaGravados: number): boolean {
+  if (prazoEm === undefined || jaGravados === 0) return false;
+  return Date.now() >= prazoEm;
+}
+
 export async function persistMessages(params: {
   connectionId: string;
   userId: string;
   mensagens: RawMessage[];
   removidos?: string[];
   mailboxIdPorProviderId: Map<string, string>;
+  /** Instante (epoch ms) a partir do qual parar de gravar. */
+  prazoEm?: number;
 }): Promise<PersistCounts> {
-  const { connectionId, userId, mensagens, mailboxIdPorProviderId } = params;
+  const { connectionId, userId, mensagens, mailboxIdPorProviderId, prazoEm } = params;
   const removidos = params.removidos ?? [];
 
   if (mensagens.length === 0 && removidos.length === 0) return VAZIO;
@@ -177,6 +202,11 @@ export async function persistMessages(params: {
   const itensTocados: string[] = [];
 
   for (const mensagem of mensagens) {
+    if (acabouOTempo(prazoEm, contagem.created + contagem.updated)) {
+      contagem.interrompido = true;
+      break;
+    }
+
     const dedupeKey = messageDedupeKey({
       rfcMessageId: mensagem.rfcMessageId,
       fromEmail: mensagem.fromEmail,
@@ -256,8 +286,10 @@ export async function persistEvents(params: {
   eventos: RawEvent[];
   removidos?: string[];
   calendarIdPorProviderId: Map<string, string>;
+  /** Instante (epoch ms) a partir do qual parar de gravar. */
+  prazoEm?: number;
 }): Promise<PersistCounts> {
-  const { connectionId, userId, eventos, calendarIdPorProviderId } = params;
+  const { connectionId, userId, eventos, calendarIdPorProviderId, prazoEm } = params;
   const removidos = params.removidos ?? [];
 
   if (eventos.length === 0 && removidos.length === 0) return VAZIO;
@@ -266,6 +298,11 @@ export async function persistEvents(params: {
   const itensTocados: string[] = [];
 
   for (const evento of eventos) {
+    if (acabouOTempo(prazoEm, contagem.created + contagem.updated)) {
+      contagem.interrompido = true;
+      break;
+    }
+
     const calendarSourceId = calendarIdPorProviderId.get(evento.calendarProviderId);
     // Evento de um calendario que ainda nao conhecemos: sera pego no proximo
     // ciclo, depois da redescoberta. Ignorar e melhor que gravar orfao — mas

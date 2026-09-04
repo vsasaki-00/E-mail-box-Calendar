@@ -18,6 +18,16 @@ import { getConnector } from '@/lib/connectors/registry';
 export const maxDuration = 60;
 
 /**
+ * Onde a GRAVACAO para, mesmo no meio de uma pagina.
+ *
+ * Deixa ~15s de folga sobre os 60s da plataforma para a reconciliacao e a
+ * resposta. Interromper e seguro: toda escrita e upsert por chave do
+ * provedor, e o cursor so avanca no fim da pagina — parar no meio custa
+ * refazer a pagina na volta seguinte, e nada mais.
+ */
+const PRAZO_DE_GRAVACAO_MS = 45_000;
+
+/**
  * UMA execucao por recurso, por requisicao. Sem laco aqui.
  *
  * O laco existia para poupar idas e vindas, mas encadeava trabalho de
@@ -54,6 +64,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
 }
 
 async function sincronizar(params: Promise<{ id: string }>): Promise<NextResponse> {
+  const comecou = Date.now();
   const { id } = await params;
 
   const conexao = await prisma.connection.findUnique({ where: { id } });
@@ -153,7 +164,14 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
       });
     }
 
-    const resultado = await runSync(primeiro, new Date()).finally(sair);
+    const resultado = await runSync(
+      primeiro,
+      new Date(),
+      // Freio de dentro: a gravacao para no meio da pagina se passar disto, e
+      // a volta e reportada como parcial. E o que impede o 504 seco da
+      // plataforma, que chega sem corpo e sem dizer onde o tempo foi.
+      comecou + PRAZO_DE_GRAVACAO_MS,
+    ).finally(sair);
 
     // PARTIAL significa "sobrou trabalho", e e o que manda o navegador pedir
     // a proxima volta.

@@ -207,6 +207,7 @@ export async function arrendarRecurso(syncStateId: string, now = new Date()): Pr
 export async function runSync(
   syncState: SyncState & { connection: Connection },
   now = new Date(),
+  prazoEm?: number,
 ): Promise<SyncResult> {
   const { connection, resource } = syncState;
   const connector = getConnector(connection.provider);
@@ -268,6 +269,7 @@ export async function runSync(
             mensagens: page.items as never,
             removidos: page.deletedProviderIds,
             mailboxIdPorProviderId: containers,
+            prazoEm,
           })
         : await persistEvents({
             connectionId: connection.id,
@@ -275,9 +277,14 @@ export async function runSync(
             eventos: page.items as never,
             removidos: page.deletedProviderIds,
             calendarIdPorProviderId: containers,
+            prazoEm,
           });
 
-    const parcial = Boolean(page.nextPageToken);
+    // Gravacao interrompida conta como parcial: avancar o cursor com metade
+    // da pagina gravada perderia a outra metade para sempre. Parcial faz a
+    // proxima volta refazer a pagina — e refazer e barato, porque toda
+    // escrita e upsert por chave do provedor.
+    const parcial = Boolean(page.nextPageToken) || Boolean(counts.interrompido);
     const decisao = decideAfterSuccess(pollInterval, now);
 
     await prisma.$transaction([
@@ -380,6 +387,18 @@ export interface CicloOptions {
    * diz que ainda ha trabalho. Sem orcamento (o worker local), roda tudo.
    */
   orcamentoMs?: number;
+
+  /**
+   * Instante (epoch ms) a partir do qual a GRAVACAO para no meio da pagina.
+   *
+   * O orcamento acima impede comecar recurso novo, mas nao ajuda com o
+   * recurso que ja comecou — e gravar uma pagina no Postgres pode custar mais
+   * que busca-la. Este e o freio de dentro: para de gravar, marca a volta
+   * como parcial, e a proxima refaz a pagina (upsert, entao refazer e
+   * barato). Sem ele, a unica coisa que interrompia o trabalho era a
+   * plataforma matar a funcao — que e onde nasceram os 504.
+   */
+  prazoDeGravacaoEm?: number;
 }
 
 /** Um ciclo do worker: pega o que venceu e executa em sequencia. */
@@ -399,7 +418,7 @@ export async function runSyncCycle(
 
     // Falha de uma conexao nunca derruba o ciclo das outras: e o que sustenta
     // a degradacao por conexao prometida em docs/00-visao.md.
-    results.push(await runSync(syncState, new Date()));
+    results.push(await runSync(syncState, new Date(), options.prazoDeGravacaoEm));
   }
 
   return results;

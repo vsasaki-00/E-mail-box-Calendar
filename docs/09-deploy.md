@@ -320,10 +320,48 @@ trava tomada, o `finally` que a devolveria nunca roda, e sem validade aquela
 instância recusaria todo sync para sempre — o conserto viraria pane permanente.
 A rota responde `{"ocupado": true}` e o laço do agendamento espera 20 s.
 
+**Três freios, e cada um pega o que o anterior não pega.** Esperar o trabalho
+terminar só é seguro se o trabalho for limitado — e não era. Remover o
+`Promise.race` sem isso trocou o erro de pool por `FUNCTION_INVOCATION_TIMEOUT`
+em *todas* as contas, inclusive numa que estava em dia. Os três:
+
+| freio | onde | o que ele impede |
+| --- | --- | --- |
+| `orcamentoMs` (15 s) | ciclo | começar recurso novo |
+| `GOOGLE_RUN_BUDGET_MS` / `GRAPH_RUN_BUDGET_MS` (6 s) | conector | buscar mais páginas |
+| `prazoDeGravacaoEm` (45 s) | gravação | continuar gravando a página |
+
+O terceiro é o que faltava. O orçamento do ciclo não ajuda com o recurso que
+**já começou**, e gravar uma página no Postgres custa mais que buscá-la: cada
+mensagem são três consultas (upsert do item unificado, busca da cópia,
+gravação). Cem mensagens viram algumas centenas de idas ao banco numa volta só
+— daí `GMAIL_PAGE_SIZE` ter caído de 100 para 25, o mesmo número que o Graph
+já usava.
+
+Interromper a gravação no meio é seguro, e é isso que torna o freio possível:
+toda escrita é upsert por chave do provedor e o cursor da página só avança no
+fim, então parar no meio custa **refazer a página** na volta seguinte, e nada
+mais. O que não é seguro é avançar o cursor com metade da página gravada — por
+isso uma gravação interrompida marca a volta como parcial. E o primeiro item
+passa sempre, mesmo com o prazo vencido: uma volta que grava zero itens pede
+outra volta idêntica a ela, e o sync nunca sai do lugar.
+
+**Um `PrismaClient` por processo, inclusive em produção.** O cache no
+`globalThis` estava condicionado a `NODE_ENV !== 'production'`, com a suposição
+de que em produção o módulo é avaliado uma vez. Numa função serverless isso não
+vale: o Next monta um bundle por rota, e uma instância que atende rotas
+diferentes pode acabar com vários clientes, cada um abrindo o seu próprio pool
+de 5 conexões. Três clientes pedem 15, e o pooler do Supabase tem o seu próprio
+teto — daí `Timed out fetching a new connection` numa consulta banal. Quando
+toda consulta espera os 20 s do timeout, um incremental de conta em dia estoura
+os 60 s da plataforma.
+
 **A sonda `/api/saude` diz qual commit está no ar.** Sete caracteres do SHA, e
 não é enfeite: mais de uma rodada de depuração se perdeu num sintoma que o
 commit seguinte já tinha consertado, sem jeito de responder de fora "a correção
-está no ar?".
+está no ar?". Ela também devolve `latenciaBancoMs`: se um `select 1` custa mais
+de umas poucas dezenas de milissegundos, o banco está longe do `gru1` da Vercel
+e é isso que faz cada gravação pesar.
 
 **O calendário do Google não tinha orçamento de tempo.** Ele percorria todos
 os calendários e todas as páginas de cada um numa chamada só (até 60 páginas

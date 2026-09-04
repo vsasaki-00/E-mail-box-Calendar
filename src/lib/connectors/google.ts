@@ -86,8 +86,20 @@ const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GMAIL_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const CALENDAR_BASE = 'https://www.googleapis.com/calendar/v3';
 
-/** Paginas por chamada de fetch: acima disso devolvemos o controle ao motor. */
-const MAIL_PAGE_SIZE = 100;
+/**
+ * Mensagens por volta.
+ *
+ * Eram 100, herdadas do que a API do Gmail aceita — e o teto da API nao tem
+ * nada a ver com o que cabe numa funcao de 60s. Cada mensagem custa uma busca
+ * de metadados (em lotes de 8) MAIS duas gravacoes no Postgres, e a gravacao
+ * pesa mais que a busca. Cem mensagens viram algumas centenas de idas ao
+ * banco numa volta so.
+ *
+ * 25 e o mesmo numero que o conector Microsoft usa, pelo mesmo motivo. Uma
+ * caixa grande leva mais voltas, e voltas o agendamento tem de sobra; o que
+ * ele nao tem e uma volta que caiba.
+ */
+const MAIL_PAGE_SIZE = envNumero(process.env.GMAIL_PAGE_SIZE, 25);
 const CALENDAR_PAGE_SIZE = 250;
 /** Teto de paginas por calendario numa unica execucao, contra loop infinito. */
 const MAX_CALENDAR_PAGES = 60;
