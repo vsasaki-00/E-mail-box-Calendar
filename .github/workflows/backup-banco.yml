@@ -81,25 +81,39 @@ jobs:
             echo "::error::SUPABASE_DB_URL está vazio. Defina-o nos segredos do repositório."
             exit 1
           fi
-          case "$URL" in
+
+          # NORMALIZA ANTES DE JULGAR.
+          #
+          # `gh secret set` grava o que for colado, inclusive as aspas em volta e
+          # a quebra de linha do fim. Nenhuma das duas é visível para quem colou,
+          # e as duas fazem o pg_dump tratar a string como nome de banco.
+          # Recusar por causa de uma aspa que a pessoa não vê é recusar sem
+          # ensinar nada — então aqui elas saem, e o dump usa o valor limpo.
+          LIMPA=$(printf '%s' "$URL" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')
+
+          case "$LIMPA" in
             postgres://*|postgresql://*) ;;
-            *) echo "::error::SUPABASE_DB_URL não é uma URI de conexão — ela precisa começar com postgresql://. Formato: postgresql://USUARIO.REF:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres (Session pooler, NÃO o host direto db.REF.supabase.co, que só tem IPv6)."
+            *) # Os 12 primeiros caracteres são o esquema, nunca a credencial —
+               # e é exatamente o que falta ver para entender o que se colou.
+               echo "::error::SUPABASE_DB_URL não começa com postgresql:// — recebi algo que começa com \"$(printf '%s' "$LIMPA" | cut -c1-12)…\". Formato esperado: postgresql://USUARIO.REF:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres (Session pooler; o host direto db.REF.supabase.co não serve, só tem IPv6)."
                exit 1 ;;
           esac
-          case "$URL" in
+          # O resto do job usa a versão limpa.
+          echo "URL_BANCO=$LIMPA" >> "$GITHUB_ENV"
+          case "$LIMPA" in
             *db.*.supabase.co*) echo "::error::SUPABASE_DB_URL aponta para o host DIRETO (db.REF.supabase.co). Ele só tem endereço IPv6 e o runner do GitHub não alcança IPv6. Use a string do Session pooler, cujo host termina em pooler.supabase.com."
                exit 1 ;;
           esac
-          case "$URL" in
+          case "$LIMPA" in
             *'[YOUR-PASSWORD]'*) echo "::error::A senha continua como o marcador que o Supabase mostra ([YOUR-PASSWORD]). Troque pelo valor real."
                exit 1 ;;
           esac
-          echo "formato ok: $(printf '%s' "$URL" | sed -E 's#//[^@]*@#//***@#')"
+          echo "formato ok: $(printf '%s' "$LIMPA" | sed -E 's#//[^@]*@#//***@#')"
 
       - name: Dump (schema public)
         run: |
           inicio=$SECONDS
-          pg_dump "${{ secrets.SUPABASE_DB_URL }}" \
+          pg_dump "$URL_BANCO" \
             --format=custom --no-owner --no-privileges \
             --schema=public \
             --file="banco-meridiano-$(date +%Y%m%d).dump"
