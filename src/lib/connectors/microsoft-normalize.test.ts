@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_SYNCED_FOLDER_ALIASES,
   folderRole,
   normalizeGraphEvent,
   normalizeGraphMessage,
@@ -18,7 +19,6 @@ describe('folderRole', () => {
     expect(folderRole('sentitems')).toBe('SENT');
     expect(folderRole('deleteditems')).toBe('TRASH');
     expect(folderRole('junkemail')).toBe('SPAM');
-    expect(folderRole('drafts')).toBe('CUSTOM');
     expect(folderRole('MinhaPastaPersonalizada')).toBe('CUSTOM');
   });
 });
@@ -166,5 +166,29 @@ describe('normalizeGraphEvent', () => {
 
   it('devolve null para evento sem horario utilizavel', () => {
     expect(normalizeGraphEvent(evento({ start: undefined }), 'c1')).toBeNull();
+  });
+});
+
+describe('folderRole — as pastas que o conector diz sincronizar', () => {
+  it('nenhuma das quatro cai em CUSTOM', () => {
+    // Aqui morava o bug, e o teste antigo o descrevia como se fosse a
+    // intencao (`expect(folderRole('drafts')).toBe('CUSTOM')`). `drafts` e
+    // `archive` estao em DEFAULT_SYNCED_FOLDER_ALIASES desde o comeco, mas
+    // caiam no `default` como CUSTOM — e o filtro de `fetchMessages` descarta
+    // CUSTOM sem cursor. As duas nunca sincronizavam.
+    //
+    // Afirmar sobre a LISTA, e nao sobre nomes soltos, e o que faz este teste
+    // acusar uma pasta nova que entre na lista sem ganhar papel.
+    expect(DEFAULT_SYNCED_FOLDER_ALIASES.map(folderRole)).toEqual([
+      'INBOX',
+      'SENT',
+      'DRAFTS',
+      'ARCHIVE',
+    ]);
+    expect(DEFAULT_SYNCED_FOLDER_ALIASES.map(folderRole)).not.toContain('CUSTOM');
+  });
+
+  it('pasta criada pelo usuario continua CUSTOM', () => {
+    expect(folderRole('Projetos 2026')).toBe('CUSTOM');
   });
 });

@@ -17,11 +17,7 @@ import type { ConnectorContext } from './types';
  */
 
 const conector = getConnector('MICROSOFT');
-// Só `inbox` e `sentitems` sincronizam numa caixa nova: `drafts` e
-// `archive` recebem role CUSTOM em `folderRole`, e o filtro de `fetchMessages`
-// deixa CUSTOM sem cursor de fora. Os testes de MUITOS containers usam
-// calendários, que não têm esse filtro.
-const PASTAS = ['inbox', 'sentitems'];
+const PASTAS = ['inbox', 'sentitems', 'drafts', 'archive'];
 const CALENDARIOS = ['agenda-a', 'agenda-b', 'agenda-c', 'agenda-d'];
 
 function contexto(): ConnectorContext {

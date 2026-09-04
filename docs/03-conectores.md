@@ -58,6 +58,19 @@ As pastas padrão são resolvidas pelo **alias bem-conhecido**
 pt-BR, "Posteingang" em de-DE) e casar por texto quebraria em qualquer
 idioma diferente do inglês.
 
+Por muito tempo esse "por padrão" foi mentira para metade da lista: `drafts` e
+`archive` estavam em `DEFAULT_SYNCED_FOLDER_ALIASES`, mas `folderRole()` caía
+no `default` e devolvia `CUSTOM` para as duas — e o filtro de `fetchMessages`
+descarta pastas `CUSTOM` que não tenham cursor anterior. **Rascunhos e Arquivo
+nunca sincronizavam**, com a intenção escrita certa em dois lugares (a lista e
+o comentário) e errada no único que decide. Hoje cada alias da lista tem papel
+próprio, e o teste afirma sobre a LISTA — não sobre nomes soltos — para acusar
+uma pasta nova que entre nela sem ganhar papel.
+
+Entrar no sync não é entrar na Inbox Unificada: `includeInUnified` continua
+sendo só `INBOX`, e a triagem só lê de caixas unificadas. Rascunhos e Arquivo
+passam a ser guardados e ficam pesquisáveis, sem gastar chamada de modelo.
+
 **Sync de calendário**: `/me/calendars/{id}/calendarView/delta`, que devolve
 instâncias já expandidas dentro de uma janela — equivalente ao
 `singleEvents=true` do Google Calendar. O `deltaLink` volta no fim da última

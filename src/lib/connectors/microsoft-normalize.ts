@@ -24,6 +24,15 @@ export function folderRole(wellKnownName: string): RawMailbox['role'] {
       return 'INBOX';
     case 'sentitems':
       return 'SENT';
+    // `drafts` e `archive` estao em DEFAULT_SYNCED_FOLDER_ALIASES desde o
+    // comeco, mas caiam no `default` e viravam CUSTOM — e o filtro de
+    // `fetchMessages` descarta CUSTOM sem cursor. Resultado: as duas pastas
+    // que o codigo dizia sincronizar nunca sincronizavam. A intencao estava
+    // certa em dois lugares e errada no unico que decide.
+    case 'drafts':
+      return 'DRAFTS';
+    case 'archive':
+      return 'ARCHIVE';
     case 'deleteditems':
       return 'TRASH';
     case 'junkemail':

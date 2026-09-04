@@ -215,7 +215,7 @@ model Mailbox {
   connectionId     String
   providerId       String
   name             String
-  /// INBOX, SENT, ARCHIVE, SPAM, TRASH, CUSTOM
+  /// INBOX, SENT, DRAFTS, ARCHIVE, SPAM, TRASH, CUSTOM
   role             String  @default("CUSTOM")
   /// Se entra na Inbox Unificada. O usuario escolhe.
   includeInUnified Boolean @default(false)

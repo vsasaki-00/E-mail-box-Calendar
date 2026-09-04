@@ -68,7 +68,7 @@ export class ConnectorError extends Error {
 export interface RawMailbox {
   providerId: string;
   name: string;
-  role: 'INBOX' | 'SENT' | 'ARCHIVE' | 'SPAM' | 'TRASH' | 'CUSTOM';
+  role: 'INBOX' | 'SENT' | 'DRAFTS' | 'ARCHIVE' | 'SPAM' | 'TRASH' | 'CUSTOM';
   unreadCount?: number;
   totalCount?: number;
 }
