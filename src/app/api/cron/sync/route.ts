@@ -56,35 +56,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const inicio = Date.now();
 
-  // Dois relógios, e os dois precisam existir.
+  // UM relógio, e a rota ESPERA o trabalho acabar.
   //
-  // O orçamento (25s) impede PEGAR recurso novo. Sozinho ele não basta: um
-  // recurso iniciado aos 24s ainda tem o tempo dele pela frente, e foi
-  // exatamente assim que o primeiro disparo automático estourou os 60s da
-  // Vercel — duas vezes seguidas, cada uma devolvendo uma página de texto no
-  // lugar do JSON.
+  // Havia aqui um segundo relógio: um `Promise.race` que respondia aos 45s e
+  // deixava o ciclo rodando. Parecia generoso — "melhor uma resposta honesta
+  // de ainda falta que um 504 que não diz nada" — e era a origem do erro que
+  // mais custou caro:
   //
-  // O prazo (45s) é a rede embaixo: quando o ciclo passa dele, a rota
-  // responde assim mesmo, dizendo quanto sobrou. O trabalho em andamento não
-  // se perde — cada página já foi gravada com seu cursor, e a próxima chamada
-  // retoma dali. Melhor uma resposta honesta de "ainda falta" que um 504 que
-  // não diz nada.
+  //     Timed out fetching a new connection from the connection pool
+  //
+  // Não dá para cancelar uma promise. O trabalho abandonado continuava com
+  // consulta em voo quando a resposta saía, e a plataforma podia CONGELAR a
+  // instância nesse ponto. A conexão daquela consulta nunca voltava para o
+  // pool. Uma por requisição estourada; cinco depois, aquela instância estava
+  // morta para sempre — e o erro aparecia na consulta mais banal do próximo
+  // sync, longe de quem causou.
+  //
+  // Agora o orçamento (25s) impede PEGAR recurso novo, e a rota espera o
+  // recurso em andamento terminar. O teto é 25s + um recurso, e um recurso é
+  // limitado pelo orçamento do conector (6s de busca) mais a gravação de uma
+  // página — folgado dentro dos 60s. Se um dia estourar mesmo assim, o preço
+  // é um 504 feio numa volta, e não um pool furado para sempre.
   const ORCAMENTO_SYNC_MS = 25_000;
-  const PRAZO_RESPOSTA_MS = 45_000;
 
   // Sync e automação são relatados separados: se a automação falhar por falta
   // de ANTHROPIC_API_KEY, o sync ainda rodou, e a resposta precisa dizer isso
   // em vez de virar um 500 que esconde as duas coisas.
   let sync:
     | { recursos: number; falhas: number; parciais: number; pendentes: number }
-    | { estourou: true; pendentes: number }
     | { erro: string };
-  let estourouOPrazo = false;
 
-  // Um ciclo por instancia. Sem isto, a volta anterior — que continua rodando
-  // depois de a resposta sair pelo prazo — divide as 5 conexoes do pool com
-  // esta, e a perdedora morre com "Timed out fetching a new connection".
-  // Ver core/sync/em-andamento.ts
+  // Um ciclo por instancia: duas requisicoes atendidas pela MESMA instancia
+  // quente dividiriam as 5 conexoes do pool do Prisma, que e por instancia.
+  // A trava expira sozinha — ver core/sync/em-andamento.ts.
   if (!tentarEntrar()) {
     // `sync` continua sendo um OBJETO: quem chama faz `jq '.sync.erro'`, e
     // uma string ali quebraria o laco do agendamento com erro de jq — um
@@ -98,44 +102,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const ESTOUROU = Symbol('estourou');
-    let alarme: ReturnType<typeof setTimeout> | undefined;
-    // A trava e liberada pelo fim do TRABALHO, nao pelo fim da resposta: e o
-    // trabalho que segura conexao do pool.
-    const trabalho = runSyncCycle(new Date(), { orcamentoMs: ORCAMENTO_SYNC_MS }).finally(sair);
-    const resultados = await Promise.race([
-      trabalho,
-      new Promise<typeof ESTOUROU>((resolve) => {
-        alarme = setTimeout(() => resolve(ESTOUROU), PRAZO_RESPOSTA_MS);
-      }),
-    ]).finally(() => clearTimeout(alarme));
+    const resultados = await runSyncCycle(new Date(), {
+      orcamentoMs: ORCAMENTO_SYNC_MS,
+    }).finally(sair);
 
     // O número que interessa a quem agenda de fora: enquanto for maior que
     // zero, há o que fazer e vale chamar de novo. Uma caixa nova leva dezenas
     // de voltas até zerar.
-    const pendentes = await contarSyncStatesVencidos();
-
-    if (resultados === ESTOUROU) {
-      estourouOPrazo = true;
-      sync = { estourou: true, pendentes };
-    } else {
-      sync = {
-        recursos: resultados.length,
-        falhas: resultados.filter((r) => r.outcome === 'FAILED').length,
-        parciais: resultados.filter((r) => r.outcome === 'PARTIAL').length,
-        pendentes,
-      };
-    }
+    sync = {
+      recursos: resultados.length,
+      falhas: resultados.filter((r) => r.outcome === 'FAILED').length,
+      parciais: resultados.filter((r) => r.outcome === 'PARTIAL').length,
+      pendentes: await contarSyncStatesVencidos(),
+    };
   } catch (error) {
+    // `sair` já veio pelo `finally` acima — ele roda na falha também.
     sync = { erro: error instanceof Error ? error.message : 'falha desconhecida' };
   }
 
   // `?automacao=0` roda só o sync — útil para um cron de alta frequência que
-  // não deve gastar chamadas de modelo a cada disparo. Se o sync já consumiu
-  // o prazo, a automação também fica de fora: começar agora seria garantir o
-  // 504 que o prazo existe para evitar.
+  // não deve gastar chamadas de modelo a cada disparo. E se o sync falhou, a
+  // automação fica de fora: ela lê o que o sync gravou, e rodá-la sobre um
+  // ciclo quebrado gasta chamada de modelo sem base.
   const rodarAutomacao =
-    request.nextUrl.searchParams.get('automacao') !== '0' && !estourouOPrazo;
+    request.nextUrl.searchParams.get('automacao') !== '0' && !('erro' in sync);
 
   let automacao: { triados: number; cobrancas: number } | { erro: string } | 'pulada' = 'pulada';
   if (rodarAutomacao) {

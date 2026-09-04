@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { estaOcupado, sair, tentarEntrar } from './em-andamento';
+import { estaOcupado, sair, tentarEntrar, VALIDADE_MS } from './em-andamento';
 
 describe('em-andamento', () => {
   beforeEach(() => sair());
 
   it('o segundo ciclo nao entra enquanto o primeiro nao sai', () => {
     expect(tentarEntrar()).toBe(true);
-    expect(tentarEntrar()).toBe(false);
     expect(tentarEntrar()).toBe(false);
     sair();
     expect(tentarEntrar()).toBe(true);
@@ -19,15 +18,20 @@ describe('em-andamento', () => {
     expect(tentarEntrar()).toBe(true);
   });
 
-  it('a trava sobrevive a resposta: quem libera e o fim do TRABALHO', async () => {
-    // O caso real: a rota responde por prazo e o trabalho continua. Ate ele
-    // acabar, ninguem mais entra — e isso e o que impede dois ciclos
-    // disputando as 5 conexoes do pool.
-    expect(tentarEntrar()).toBe(true);
-    const trabalho = new Promise<void>((resolve) => setTimeout(resolve, 10)).finally(sair);
+  it('trava abandonada EXPIRA — instancia congelada nao pode travar para sempre', () => {
+    // Numa funcao serverless a instancia pode ser congelada a qualquer
+    // momento. Se isso acontecer com a trava tomada, o `finally` nunca roda.
+    // Sem validade, aquela instancia recusaria todo sync para sempre: o
+    // conserto viraria pane permanente.
+    const t0 = 1_000_000;
+    expect(tentarEntrar(t0)).toBe(true);
+    expect(tentarEntrar(t0 + VALIDADE_MS - 1)).toBe(false);
+    expect(tentarEntrar(t0 + VALIDADE_MS)).toBe(true);
+  });
 
-    expect(tentarEntrar()).toBe(false); // a resposta ja saiu, o trabalho nao
-    await trabalho;
-    expect(tentarEntrar()).toBe(true);
+  it('a validade e maior que o teto da plataforma', () => {
+    // Se fosse menor, uma execucao VIVA seria considerada abandonada e duas
+    // rodariam juntas — exatamente o que a trava existe para impedir.
+    expect(VALIDADE_MS).toBeGreaterThan(60_000);
   });
 });

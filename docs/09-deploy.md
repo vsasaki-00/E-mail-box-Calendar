@@ -282,13 +282,12 @@ E a faixa em Conexões passa a dizer **quantas** caixas a última volta pegou, e
 não só quando ela aconteceu: "último ciclo em 04/09, 07:07" era verdade e
 escondia que só uma das seis tinha sido sincronizada.
 
-**A trava de instância, e por que o pool estourava.** As duas rotas de sync
-respondem por `Promise.race` com um prazo — e quando o prazo vence, a resposta
-sai e **o trabalho continua rodando**, porque não há como cancelar uma promise.
-Isso é deliberado (o que já foi gravado não se perde), mas quem chama volta
-imediatamente para a próxima volta, a mesma instância quente atende, e passam
-a existir dois ciclos gravando ao mesmo tempo. Depois três. O pool do Prisma é
-por instância e tem 5 conexões:
+**Nenhuma rota abandona trabalho, e é por isso que o pool parou de estourar.**
+As duas rotas de sync respondiam por `Promise.race` com um prazo: quando o
+prazo vencia, a resposta saía e **o trabalho continuava rodando** — não há como
+cancelar uma promise. Parecia generoso ("melhor uma resposta honesta de *ainda
+falta* que um 504 que não diz nada") e era a origem do erro que mais custou
+caro:
 
 ```
 Invalid `prisma.calendarSource.upsert()` invocation:
@@ -296,12 +295,35 @@ Timed out fetching a new connection from the connection pool
 (Current connection pool timeout: 20, connection limit: 5)
 ```
 
-O erro aparece em quem chegou por último — uma consulta banal, no começo do
-trabalho — e não em quem causou; por isso engana. `core/sync/em-andamento.ts`
-deixa um ciclo por instância, e a trava é liberada pelo **fim do trabalho**,
-não pelo fim da resposta: é o trabalho que segura conexão. A rota responde
-`{"ocupado": true}` e o laço do agendamento espera 20 s — insistir sem pausa
-recriaria o empilhamento.
+Duas consequências, e a segunda é a grave:
+
+1. **Empilhamento.** Quem chama volta imediatamente para a próxima volta, a
+   mesma instância quente atende, e passam a existir dois ciclos gravando ao
+   mesmo tempo. Depois três. O pool do Prisma é por instância e tem 5 conexões.
+2. **Vazamento.** O trabalho abandonado ficava com consulta **em voo** no
+   instante em que a resposta saía, e a plataforma pode CONGELAR a instância
+   nesse ponto. A conexão daquela consulta nunca volta para o pool. Uma por
+   requisição estourada; cinco depois, aquela instância está morta para
+   sempre — e o erro aparece na consulta mais banal do sync seguinte, longe de
+   quem causou. Por isso ele engana: quem aparece no erro é a vítima.
+
+Hoje as rotas **esperam** o trabalho terminar. O que garante que isso cabe nos
+60 s são os orçamentos: o ciclo para de PEGAR recurso novo aos 25 s, e um
+recurso é limitado pelo orçamento do conector (6 s de busca) mais a gravação de
+uma página. Se um dia estourar mesmo assim, o preço é um 504 feio numa volta —
+não um pool furado para sempre.
+
+A trava de instância (`core/sync/em-andamento.ts`) continua, como rede de
+segurança contra duas requisições atendidas pela mesma instância quente. Ela
+**expira em 90 s**, e isso não é detalhe: se a instância for congelada com a
+trava tomada, o `finally` que a devolveria nunca roda, e sem validade aquela
+instância recusaria todo sync para sempre — o conserto viraria pane permanente.
+A rota responde `{"ocupado": true}` e o laço do agendamento espera 20 s.
+
+**A sonda `/api/saude` diz qual commit está no ar.** Sete caracteres do SHA, e
+não é enfeite: mais de uma rodada de depuração se perdeu num sintoma que o
+commit seguinte já tinha consertado, sem jeito de responder de fora "a correção
+está no ar?".
 
 **O calendário do Google não tinha orçamento de tempo.** Ele percorria todos
 os calendários e todas as páginas de cada um numa chamada só (até 60 páginas

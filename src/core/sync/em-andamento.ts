@@ -1,32 +1,34 @@
 /**
- * Um ciclo por instância, de cada vez.
+ * Um ciclo por instância, de cada vez — e a trava expira.
  *
- * As duas rotas de sync respondem por `Promise.race` com um prazo: quando o
- * prazo vence, a resposta sai e **o trabalho continua rodando** — não há como
- * cancelar uma promise. Isso é deliberado (o que já foi gravado não se
- * perde), mas tem um custo que ficou invisível até aparecer em produção: quem
- * chama volta imediatamente para a próxima volta, a mesma instância quente
- * atende, e agora há dois ciclos gravando ao mesmo tempo. Depois três.
+ * As rotas de sync não abandonam mais trabalho no meio (ver a nota sobre
+ * `Promise.race` em `docs/09-deploy.md`), então esta trava é rede de
+ * segurança e não o mecanismo principal: ela impede que duas requisições
+ * atendidas pela MESMA instância quente disputem as 5 conexões do pool do
+ * Prisma, que é por instância.
  *
- * O pool do Prisma é POR INSTÂNCIA e tem 5 conexões. Ciclos empilhados
- * esgotam as cinco, e a próxima consulta espera 20 s por uma conexão e morre:
- *
- *     Invalid `prisma.calendarSource.upsert()` invocation:
- *     Timed out fetching a new connection from the connection pool
- *
- * O erro aparece em quem chegou por último — uma consulta banal, no começo do
- * trabalho — e não em quem causou. Por isso ele engana.
- *
- * A trava é de processo, e é exatamente o alcance certo: o pool também é de
- * processo. Duas instâncias diferentes não disputam as mesmas 5 conexões.
+ * **A expiração não é detalhe.** Numa função serverless a instância pode ser
+ * congelada a qualquer momento; se isso acontecer com a trava tomada, o
+ * `finally` que a devolveria nunca roda e aquela instância passaria a recusar
+ * todo sync para sempre — um conserto virando pane permanente. Uma trava mais
+ * velha que o tempo máximo de uma função não é mais uma trava: é lixo de uma
+ * execução que não existe mais.
  */
 
-let ocupado = false;
+/**
+ * Depois disto a trava é considerada abandonada.
+ *
+ * 90s: o teto da plataforma é 60s, então nenhuma execução viva pode ter
+ * passado disso. A folga cobre relógio impreciso.
+ */
+export const VALIDADE_MS = 90_000;
 
-/** Devolve `false` quando já há um ciclo rodando nesta instância. */
-export function tentarEntrar(): boolean {
-  if (ocupado) return false;
-  ocupado = true;
+let tomadaEm: number | null = null;
+
+/** Devolve `false` quando já há um ciclo vivo nesta instância. */
+export function tentarEntrar(agora = Date.now()): boolean {
+  if (tomadaEm !== null && agora - tomadaEm < VALIDADE_MS) return false;
+  tomadaEm = agora;
   return true;
 }
 
@@ -34,13 +36,12 @@ export function tentarEntrar(): boolean {
  * Libera a trava.
  *
  * Precisa ser chamado quando o TRABALHO termina, e não quando a resposta sai:
- * é o trabalho que segura conexão do pool. Ligar isto ao fim da resposta
- * traria de volta exatamente o empilhamento que a trava existe para impedir.
+ * é o trabalho que segura conexão do pool.
  */
 export function sair(): void {
-  ocupado = false;
+  tomadaEm = null;
 }
 
-export function estaOcupado(): boolean {
-  return ocupado;
+export function estaOcupado(agora = Date.now()): boolean {
+  return tomadaEm !== null && agora - tomadaEm < VALIDADE_MS;
 }

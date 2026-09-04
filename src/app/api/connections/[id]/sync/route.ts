@@ -18,15 +18,6 @@ import { getConnector } from '@/lib/connectors/registry';
 export const maxDuration = 60;
 
 /**
- * Quando desistir e responder mesmo assim.
- *
- * Confortavelmente abaixo do teto da funcao: uma resposta nossa, ainda que
- * dizendo "nao terminei", vale mais que o 504 da plataforma — que chega sem
- * corpo, sem causa e sem indicar em que recurso o tempo foi gasto.
- */
-const PRAZO_RESPOSTA_MS = 40_000;
-
-/**
  * UMA execucao por recurso, por requisicao. Sem laco aqui.
  *
  * O laco existia para poupar idas e vindas, mas encadeava trabalho de
@@ -128,24 +119,32 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
   const resto = estados.filter((e) => e.id !== primeiro?.id);
 
   if (primeiro) {
-    // Corrida contra o relogio da plataforma.
+    // Sem corrida contra o relogio: a rota ESPERA o recurso terminar.
     //
-    // Se a funcao for cortada, quem responde e a Vercel — com uma pagina de
-    // texto e o codigo FUNCTION_INVOCATION_TIMEOUT, que nao diz o que estava
-    // acontecendo. Respondendo antes, a mensagem nomeia o recurso e o
-    // tempo, e o trabalho ja persistido (pagina a pagina) nao se perde.
+    // Havia aqui um `Promise.race` que respondia aos 40s e deixava o
+    // `runSync` rodando. Nao da para cancelar uma promise: o trabalho
+    // abandonado ficava com consulta em voo quando a resposta saia, a
+    // plataforma podia congelar a instancia nesse ponto, e a conexao daquela
+    // consulta nunca voltava para o pool. Cinco requisicoes estouradas
+    // depois, a instancia estava morta — e o erro aparecia como
+    // "Timed out fetching a new connection" na consulta mais banal do
+    // proximo sync. Ver docs/09-deploy.md.
+    //
+    // Um recurso e limitado pelo orcamento do conector (6s de busca) mais a
+    // gravacao de uma pagina: cabe com folga nos 60s.
     // Um sync por instancia. A volta anterior continua rodando depois de a
     // resposta sair pelo prazo, e o navegador ja pede a proxima: sem a trava,
     // as duas dividem as 5 conexoes do pool e a segunda morre com "Timed out
     // fetching a new connection". Ver core/sync/em-andamento.ts
+    // Um sync por instancia: duas requisicoes atendidas pela MESMA instancia
+    // quente dividiriam as 5 conexoes do pool. A trava expira sozinha.
     if (!tentarEntrar()) {
       return NextResponse.json({
         results: [
           {
             resource: primeiro.resource,
-            // PARTIAL faz o navegador voltar daqui a pouco, que e exatamente
-            // o comportamento certo: o trabalho esta acontecendo, so nao e
-            // esta requisicao que o esta fazendo.
+            // PARTIAL faz o navegador voltar daqui a pouco, que e o certo: o
+            // trabalho esta acontecendo, so nao e esta requisicao que o faz.
             outcome: 'PARTIAL',
             counts: { created: 0, updated: 0, deleted: 0 },
             errorMessage: 'A volta anterior ainda está rodando; esta continua dela.',
@@ -154,33 +153,16 @@ async function sincronizar(params: Promise<{ id: string }>): Promise<NextRespons
       });
     }
 
-    const trabalho = runSync(primeiro, new Date()).finally(sair);
-    const resultado = await Promise.race([
-      trabalho,
-      new Promise<'ESTOUROU'>((resolve) => setTimeout(() => resolve('ESTOUROU'), PRAZO_RESPOSTA_MS)),
-    ]);
+    const resultado = await runSync(primeiro, new Date()).finally(sair);
 
-    if (resultado === 'ESTOUROU') {
-      resultados.push({
-        resource: primeiro.resource,
-        // PARTIAL, e nao FAILED: nao houve erro — o trabalho continua na
-        // proxima volta, a partir do cursor ja gravado.
-        outcome: 'PARTIAL',
-        counts: { created: 0, updated: 0, deleted: 0 },
-        errorMessage:
-          `${primeiro.resource === 'MAIL' ? 'E-mail' : 'Calendário'} passou de ` +
-          `${PRAZO_RESPOSTA_MS / 1000}s nesta volta e continuará na próxima.`,
-      });
-    } else {
-      // PARTIAL significa "sobrou trabalho", e e o que manda o navegador
-      // pedir a proxima volta.
-      resultados.push({
-        resource: primeiro.resource,
-        outcome: resultado.outcome,
-        counts: resultado.counts,
-        ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
-      });
-    }
+    // PARTIAL significa "sobrou trabalho", e e o que manda o navegador pedir
+    // a proxima volta.
+    resultados.push({
+      resource: primeiro.resource,
+      outcome: resultado.outcome,
+      counts: resultado.counts,
+      ...(resultado.errorMessage ? { errorMessage: resultado.errorMessage } : {}),
+    });
   }
 
   // Os demais nao rodaram agora. Reportar PARTIAL faz o navegador voltar
