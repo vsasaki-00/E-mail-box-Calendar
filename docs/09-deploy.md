@@ -359,9 +359,22 @@ os 60 s da plataforma.
 **A sonda `/api/saude` diz qual commit está no ar.** Sete caracteres do SHA, e
 não é enfeite: mais de uma rodada de depuração se perdeu num sintoma que o
 commit seguinte já tinha consertado, sem jeito de responder de fora "a correção
-está no ar?". Ela também devolve `latenciaBancoMs`: se um `select 1` custa mais
-de umas poucas dezenas de milissegundos, o banco está longe do `gru1` da Vercel
-e é isso que faz cada gravação pesar.
+está no ar?".
+
+Ela devolve **duas** latências, e a diferença entre elas é o diagnóstico:
+`latenciaBancoMs` é o primeiro `select 1` (paga o aperto de mão inteiro — TCP,
+TLS, autenticação, pegar conexão no pooler) e `latenciaConsultaMs` é o segundo,
+imediatamente depois, com a conexão já aberta.
+
+| leitura | o que é | por onde se conserta |
+| --- | --- | --- |
+| primeira alta, segunda baixa | custo de conexão fria | menos instâncias frias, reuso de conexão |
+| as duas altas | banco longe ou sobrecarregado | região do banco, plano |
+
+Uma medida só não distingue as duas, e elas pedem consertos opostos. A conta
+que importa: cada mensagem gravada são três consultas, e uma página são 25
+mensagens. A 5 ms por consulta isso é meio segundo; a 1,5 s por consulta, são
+quase dois minutos — e nenhum ajuste de código cabe nos 60 s da plataforma.
 
 **O calendário do Google não tinha orçamento de tempo.** Ele percorria todos
 os calendários e todas as páginas de cada um numa chamada só (até 60 páginas

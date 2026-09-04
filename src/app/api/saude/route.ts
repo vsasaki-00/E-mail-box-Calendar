@@ -27,6 +27,18 @@ import { prisma } from '@/lib/db';
  * Devolve 200 quando o banco responde e 503 quando não. O status é a resposta:
  * o corpo é para gente, o código é para o robô.
  *
+ * ── Duas medidas, e a diferença entre elas é o diagnóstico ──────────────────
+ *
+ * `latenciaBancoMs` é o PRIMEIRO `select 1`; `latenciaConsultaMs` é o segundo,
+ * imediatamente depois. A primeira consulta de uma instância fria paga o
+ * aperto de mão inteiro — TCP, TLS, autenticação, pegar conexão no pooler —,
+ * a segunda já encontra a conexão aberta. Só uma medida não distingue "o banco
+ * está longe" de "o banco está lento", e as duas pedem consertos opostos: uma
+ * é região, a outra é carga.
+ *
+ *     primeira alta, segunda baixa  → custo de conexão fria
+ *     as duas altas                 → distância ou banco sobrecarregado
+ *
  * ── E o `commit` ────────────────────────────────────────────────────────────
  *
  * Só os 7 primeiros caracteres do SHA que a Vercel injeta no build. Não é
@@ -58,13 +70,21 @@ export async function GET() {
 
   try {
     await prisma.$queryRaw`select 1`;
+    const primeira = Date.now() - comecou;
+
+    // A segunda consulta é o que importa para saber se o banco está longe: a
+    // conexão já está aberta, então sobra só a ida e volta.
+    const antesDaSegunda = Date.now();
+    await prisma.$queryRaw`select 1`;
+
     return NextResponse.json(
       {
         ok: true,
         banco: 'ok',
         commit,
         em: new Date().toISOString(),
-        latenciaBancoMs: Date.now() - comecou,
+        latenciaBancoMs: primeira,
+        latenciaConsultaMs: Date.now() - antesDaSegunda,
       },
       { headers: { 'cache-control': 'no-store' } }
     );
