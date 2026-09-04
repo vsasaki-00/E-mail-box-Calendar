@@ -322,6 +322,23 @@ juntas:
 O progresso parcial viaja em `nextPageToken`, nunca em `cursor`: para o motor,
 `cursor` significa "terminei".
 
+**No Graph, "adiado" e "pendente" precisam de marca própria.** O conector
+Microsoft já tinha orçamento, mas adiar um container por falta de tempo
+marcava a execução inteira como incompleta — e incompleta faz o motor voltar
+imediatamente. Com mais pastas ou calendários do que cabe num orçamento, isso
+é um laço que nunca pode terminar: toda volta adia alguma coisa, toda volta
+pede outra volta. O teste com o orçamento zerado não fechava em 30 voltas.
+
+A causa é que um `@odata.deltaLink` ("li tudo; peça daqui as mudanças") e um
+`@odata.nextLink` ("parei no meio; continue daqui") são as duas URLs opacas e
+ocupam o mesmo lugar no cursor. Sem distingui-las, adiar tinha de ser tratado
+como pendente por precaução. Agora o cursor de cada container carrega uma
+marca nossa — `d:` para ponto final, `p:` para paginação em andamento — e só a
+segunda conta como trabalho pendente. A marca é nossa de propósito: dava para
+ler `$skiptoken` contra `$deltatoken` na URL, mas aí a correção dependeria de
+um detalhe do provedor que ninguém promete manter. Valor sem marca é o formato
+antigo e vale como ponto final.
+
 **Uma volta que falha não derruba o job.** O sync é retomável por desenho,
 então desistir na primeira falha jogaria fora as voltas restantes por causa
 de um 504 isolado — ou de um deploy acontecendo no meio da execução, que foi

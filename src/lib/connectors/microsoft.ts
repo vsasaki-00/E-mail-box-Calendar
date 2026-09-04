@@ -83,6 +83,60 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const MAX_PAGES_PER_CONTAINER = envNumero(process.env.GRAPH_PAGES_PER_RUN, 1);
 
 /**
+ * O que esta guardado no cursor de cada container: um PONTO FINAL ou uma
+ * PAGINACAO EM ANDAMENTO.
+ *
+ * Os dois sao URLs opacas do Graph e ocupam o mesmo lugar no cursor — um
+ * `@odata.deltaLink` ("li tudo; peca daqui as mudancas") e um
+ * `@odata.nextLink` ("parei no meio; continue daqui"). Sem distinguir os
+ * dois, adiar um container por falta de tempo obrigava a marcar a execucao
+ * inteira como incompleta, por precaucao. E incompleta faz o motor voltar
+ * IMEDIATAMENTE: com mais containers do que cabe num orcamento, isso e um
+ * laco que nunca pode terminar.
+ *
+ * A marca e nossa, e nao do Graph: da para ler `$skiptoken` contra
+ * `$deltatoken` na URL, mas ai a correcao dependeria de um detalhe do
+ * provedor que ninguem promete manter. O cursor e nosso; a marca tambem.
+ *
+ * Valor sem marca = formato antigo, gravado antes disto existir. Vale como
+ * ponto final: no pior caso um container em paginacao espera o proximo
+ * ciclo agendado em vez de ser retomado na hora — nada se perde.
+ */
+const PONTO_FINAL = 'd:';
+const PAGINA_PENDENTE = 'p:';
+
+function marcar(url: string, pendente: boolean): string {
+  return (pendente ? PAGINA_PENDENTE : PONTO_FINAL) + url;
+}
+
+function urlGuardada(guardado: string): string {
+  return guardado.startsWith(PAGINA_PENDENTE) || guardado.startsWith(PONTO_FINAL)
+    ? guardado.slice(2)
+    : guardado;
+}
+
+function temPaginaPendente(guardado: string | undefined): boolean {
+  return guardado?.startsWith(PAGINA_PENDENTE) ?? false;
+}
+
+/**
+ * Quem nunca sincronizou vai na frente.
+ *
+ * A garantia de "toda volta avanca pelo menos um container" e gasta no
+ * PRIMEIRO da lista. Sem esta ordem ela cai sempre no mesmo container barato
+ * — um incremental que ja tem ponto de partida e custa quase nada — enquanto
+ * a fila de full syncs, que e o trabalho de verdade, nunca anda.
+ */
+function pendentesPrimeiro<T extends { providerId: string }>(
+  containers: T[],
+  guardado: Record<string, string>,
+): T[] {
+  return [...containers].sort(
+    (a, b) => Number(Boolean(guardado[a.providerId])) - Number(Boolean(guardado[b.providerId])),
+  );
+}
+
+/**
  * Orcamento de TEMPO por chamada de fetch, em ms.
  *
  * Contar paginas nao bastou: o teto era por container, e uma caixa com
@@ -385,7 +439,7 @@ export const microsoftConnector: Connector = {
     const prazo = Date.now() + orcamentoMs();
     let primeira = true;
 
-    for (const pasta of alvo) {
+    for (const pasta of pendentesPrimeiro(alvo, inicial)) {
       // A primeira pasta roda sempre, mesmo sem orcamento: uma execucao que
       // nao avanca nenhuma pagina faria o cliente repetir para sempre sem
       // progresso nenhum.
@@ -393,20 +447,32 @@ export const microsoftConnector: Connector = {
         // Sem tempo para esta pasta: preserva o ponto onde ela parou, senao
         // a proxima execucao recomecaria do zero.
         const anterior = inicial[pasta.providerId];
-        if (anterior) tokens[pasta.providerId] = anterior;
-        incompleto = true;
+        if (anterior) {
+          tokens[pasta.providerId] = anterior;
+          // ADIADO NAO E PENDENTE. Uma pasta parada num ponto final esta
+          // atual ate aquele ponto; pegar as mudancas recentes pode esperar
+          // o proximo ciclo. So quem parou NO MEIO de uma paginacao tem
+          // trabalho de verdade sobrando.
+          if (temPaginaPendente(anterior)) incompleto = true;
+        } else {
+          // Nunca sincronizada: isso sim e trabalho pendente.
+          incompleto = true;
+        }
         continue;
       }
       primeira = false;
+      const anterior = inicial[pasta.providerId];
       const resultado = await fetchMessagesDaPasta(
         ctx,
         pasta.providerId,
-        inicial[pasta.providerId],
+        anterior ? urlGuardada(anterior) : undefined,
         prazo,
       );
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
-      if (resultado.deltaLink) tokens[pasta.providerId] = resultado.deltaLink;
+      if (resultado.deltaLink) {
+        tokens[pasta.providerId] = marcar(resultado.deltaLink, Boolean(resultado.incompleto));
+      }
       if (resultado.incompleto) incompleto = true;
     }
 
@@ -444,24 +510,32 @@ export const microsoftConnector: Connector = {
     const prazo = Date.now() + orcamentoMs();
     let primeiro = true;
 
-    for (const calendario of calendarios) {
+    for (const calendario of pendentesPrimeiro(calendarios, inicial)) {
+      const guardado = inicial[calendario.providerId];
+
       if (!primeiro && Date.now() >= prazo) {
-        const anterior = inicial[calendario.providerId];
-        if (anterior) tokens[calendario.providerId] = anterior;
-        incompleto = true;
+        if (guardado) {
+          tokens[calendario.providerId] = guardado;
+          // Adiado nao e pendente — ver a nota em `fetchMessages`.
+          if (temPaginaPendente(guardado)) incompleto = true;
+        } else {
+          incompleto = true;
+        }
         continue;
       }
       primeiro = false;
       const resultado = await fetchEventsDoCalendario(
         ctx,
         calendario.providerId,
-        inicial[calendario.providerId],
+        guardado ? urlGuardada(guardado) : undefined,
         options.window,
         prazo,
       );
       itens.push(...resultado.itens);
       removidos.push(...resultado.removidos);
-      if (resultado.deltaLink) tokens[calendario.providerId] = resultado.deltaLink;
+      if (resultado.deltaLink) {
+        tokens[calendario.providerId] = marcar(resultado.deltaLink, Boolean(resultado.incompleto));
+      }
       if (resultado.incompleto) incompleto = true;
     }
 
