@@ -64,6 +64,38 @@ jobs:
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
           /usr/lib/postgresql/17/bin/pg_dump --version
 
+      # A MENSAGEM DE ERRO TEM DE APONTAR PARA O ERRO.
+      #
+      # Sem esta conferência, um segredo que não é uma URI faz o pg_dump tratar
+      # a string como NOME DE BANCO e procurar um servidor no socket local. O
+      # erro que aparece é "connection to server on socket
+      # /var/run/postgresql/... failed" — que manda procurar um Postgres na
+      # máquina do runner, o lugar mais distante possível da causa.
+      #
+      # Aconteceu na primeira execução, e custou uma volta inteira.
+      - name: Conferir o formato de SUPABASE_DB_URL
+        env:
+          URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::error::SUPABASE_DB_URL está vazio. Defina-o nos segredos do repositório."
+            exit 1
+          fi
+          case "$URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::SUPABASE_DB_URL não é uma URI de conexão — ela precisa começar com postgresql://. Formato: postgresql://USUARIO.REF:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres (Session pooler, NÃO o host direto db.REF.supabase.co, que só tem IPv6)."
+               exit 1 ;;
+          esac
+          case "$URL" in
+            *db.*.supabase.co*) echo "::error::SUPABASE_DB_URL aponta para o host DIRETO (db.REF.supabase.co). Ele só tem endereço IPv6 e o runner do GitHub não alcança IPv6. Use a string do Session pooler, cujo host termina em pooler.supabase.com."
+               exit 1 ;;
+          esac
+          case "$URL" in
+            *'[YOUR-PASSWORD]'*) echo "::error::A senha continua como o marcador que o Supabase mostra ([YOUR-PASSWORD]). Troque pelo valor real."
+               exit 1 ;;
+          esac
+          echo "formato ok: $(printf '%s' "$URL" | sed -E 's#//[^@]*@#//***@#')"
+
       - name: Dump (schema public)
         run: |
           inicio=$SECONDS
