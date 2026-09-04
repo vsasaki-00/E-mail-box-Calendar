@@ -356,6 +356,40 @@ teto — daí `Timed out fetching a new connection` numa consulta banal. Quando
 toda consulta espera os 20 s do timeout, um incremental de conta em dia estoura
 os 60 s da plataforma.
 
+**A gravação é em LOTE, e isso não é otimização: é o que faz caber.** Medido
+em produção, um `select 1` custa **583 ms** com a conexão já aberta (1455 ms na
+primeira, com o aperto de mão). Numa página de 25 mensagens a versão item a
+item fazia **104 consultas** — quatro por mensagem, e escrevia todas mesmo
+quando nada tinha mudado. A 583 ms isso é **61 segundos**, e a plataforma corta
+aos 60. Um incremental de caixa parada custava o mesmo que uma carga inicial.
+
+| caso | antes | depois |
+| --- | --- | --- |
+| 25 novas (full sync) | 104 consultas | **8** |
+| 25 iguais (incremental) | 104 consultas | **5** |
+| 25, três mudaram | 104 consultas | **8** |
+
+Três mudanças, todas em `core/sync/persist.ts`:
+
+- **as chaves de deduplicação da página são resolvidas de uma vez** — uma
+  leitura, um `createMany`, e uma releitura para pegar os ids do que foi criado
+  (o `createMany` do Postgres não devolve ids);
+- **as cópias existentes vêm numa consulta só**, e as novas entram num
+  `createMany`;
+- **o que não mudou não é escrito** (`core/sync/mudou.ts`). A comparação é pura
+  e testada porque errar nela é o pior tipo de erro: um campo esquecido vira
+  dado velho na tela, para sempre e em silêncio. `undefined` é "não tenho
+  opinião" e `null` é "grave nulo" — a distinção é do Prisma, e tratá-los como
+  a mesma coisa geraria escrita à toa ou deixaria de apagar.
+
+A reconciliação de `copyCount` também só grava quem realmente mudou de
+contagem.
+
+Isso foi verificado com `scripts/verificar-persist.ts`, que roda contra um
+Postgres de verdade (não entra no `pnpm test`: a CI não sobe banco). Rodando o
+mesmo arnês na versão antiga, os 13 invariantes passam igual e só um difere —
+"reprocessar não reescreve", que é exatamente a mudança.
+
 **A sonda `/api/saude` diz qual commit está no ar.** Sete caracteres do SHA, e
 não é enfeite: mais de uma rodada de depuração se perdeu num sintoma que o
 commit seguinte já tinha consertado, sem jeito de responder de fora "a correção

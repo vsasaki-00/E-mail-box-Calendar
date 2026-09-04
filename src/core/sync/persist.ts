@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import type { RawCalendar, RawEvent, RawMailbox, RawMessage } from '@/lib/connectors/types';
 import { eventDedupeKey, messageDedupeKey } from '@/core/unified/dedupe';
+import { precisaGravar } from './mudou';
 
 /**
  * Grava o que o conector trouxe, no modelo canonico.
@@ -115,23 +116,82 @@ export async function persistCalendars(
 // Itens
 // ---------------------------------------------------------------------------
 
-async function vincularUnifiedItem(
+interface ChaveDeItem {
+  dedupeKey: string;
+  title?: string;
+  preview?: string;
+  occurredAt: Date;
+}
+
+/**
+ * Resolve TODAS as chaves da pagina de uma vez.
+ *
+ * Antes era um upsert por item: 25 mensagens, 25 idas ao banco so para isto.
+ * Aqui sao tres, no pior caso — uma leitura, uma criacao em massa, e uma
+ * releitura para pegar os ids do que foi criado (o `createMany` do Postgres
+ * nao devolve ids). Atualizacoes de metadados so acontecem para os itens que
+ * realmente mudaram.
+ */
+async function resolverUnifiedItems(
   userId: string,
   kind: 'MESSAGE' | 'EVENT',
-  dedupeKey: string,
-  title: string | undefined,
-  preview: string | undefined,
-  occurredAt: Date,
-): Promise<string> {
-  const item = await prisma.unifiedItem.upsert({
-    where: { userId_dedupeKey: { userId, dedupeKey } },
-    create: { userId, kind, dedupeKey, title, preview, occurredAt, copyCount: 0 },
-    // copyCount e recalculado ao final do lote, nao incrementado aqui: um
-    // reprocessamento da mesma pagina inflaria a contagem para sempre.
-    update: { title, preview, occurredAt },
-    select: { id: true },
+  chaves: ChaveDeItem[],
+): Promise<Map<string, string>> {
+  const porChave = new Map<string, ChaveDeItem>();
+  for (const chave of chaves) porChave.set(chave.dedupeKey, chave);
+  const listaDeChaves = [...porChave.keys()];
+  if (listaDeChaves.length === 0) return new Map();
+
+  const existentes = await prisma.unifiedItem.findMany({
+    where: { userId, dedupeKey: { in: listaDeChaves } },
+    select: { id: true, dedupeKey: true, title: true, preview: true, occurredAt: true },
   });
-  return item.id;
+  const idPorChave = new Map(existentes.map((item) => [item.dedupeKey, item.id]));
+
+  const faltando = listaDeChaves.filter((chave) => !idPorChave.has(chave));
+  if (faltando.length > 0) {
+    await prisma.unifiedItem.createMany({
+      data: faltando.map((chave) => {
+        const dados = porChave.get(chave) as ChaveDeItem;
+        return {
+          userId,
+          kind,
+          dedupeKey: chave,
+          title: dados.title,
+          preview: dados.preview,
+          occurredAt: dados.occurredAt,
+          // `copyCount` nasce em 1 e e recalculado no fim: contar aqui, item a
+          // item, faria o reprocessamento da mesma pagina inflar para sempre.
+          copyCount: 1,
+        };
+      }),
+      // Outra execucao pode ter criado a mesma chave entre a leitura e agora.
+      skipDuplicates: true,
+    });
+
+    const novos = await prisma.unifiedItem.findMany({
+      where: { userId, dedupeKey: { in: faltando } },
+      select: { id: true, dedupeKey: true },
+    });
+    for (const item of novos) idPorChave.set(item.dedupeKey, item.id);
+  }
+
+  // Metadado que mudou (o assunto foi editado, o horario mudou) ainda precisa
+  // ser gravado — mas so nos itens em que mudou de fato.
+  for (const item of existentes) {
+    const desejado = porChave.get(item.dedupeKey);
+    if (!desejado) continue;
+    const dados = {
+      title: desejado.title,
+      preview: desejado.preview,
+      occurredAt: desejado.occurredAt,
+    };
+    if (precisaGravar(dados, item)) {
+      await prisma.unifiedItem.update({ where: { id: item.id }, data: dados });
+    }
+  }
+
+  return idPorChave;
 }
 
 /** Recalcula copyCount a partir da realidade e remove itens sem nenhuma copia. */
@@ -139,7 +199,7 @@ async function reconciliarUnifiedItems(ids: string[]): Promise<void> {
   const unicos = [...new Set(ids)];
   if (unicos.length === 0) return;
 
-  const [mensagens, eventos] = await Promise.all([
+  const [mensagens, eventos, atuais] = await Promise.all([
     prisma.message.groupBy({
       by: ['unifiedItemId'],
       where: { unifiedItemId: { in: unicos } },
@@ -150,6 +210,13 @@ async function reconciliarUnifiedItems(ids: string[]): Promise<void> {
       where: { unifiedItemId: { in: unicos } },
       _count: { _all: true },
     }),
+    // A contagem que ja esta gravada: sem ela, todo item tocado levaria um
+    // UPDATE mesmo quando o numero nao mudou — e numa pagina inteira isso e
+    // o dobro das escritas, por nada.
+    prisma.unifiedItem.findMany({
+      where: { id: { in: unicos } },
+      select: { id: true, copyCount: true },
+    }),
   ]);
 
   const contagem = new Map<string, number>();
@@ -158,10 +225,16 @@ async function reconciliarUnifiedItems(ids: string[]): Promise<void> {
     contagem.set(linha.unifiedItemId, (contagem.get(linha.unifiedItemId) ?? 0) + linha._count._all);
   }
 
+  const gravadoAgora = new Map(atuais.map((item) => [item.id, item.copyCount]));
   const orfaos = unicos.filter((id) => !contagem.has(id));
+  const desatualizados = [...contagem.entries()].filter(
+    ([id, copyCount]) => gravadoAgora.get(id) !== copyCount,
+  );
+
+  if (desatualizados.length === 0 && orfaos.length === 0) return;
 
   await prisma.$transaction([
-    ...[...contagem.entries()].map(([id, copyCount]) =>
+    ...desatualizados.map(([id, copyCount]) =>
       prisma.unifiedItem.update({ where: { id }, data: { copyCount } }),
     ),
     // O item so morre quando perdeu a ultima copia.
@@ -171,14 +244,6 @@ async function reconciliarUnifiedItems(ids: string[]): Promise<void> {
   ]);
 }
 
-/**
- * Hora de parar de gravar?
- *
- * O primeiro item passa SEMPRE, mesmo com o prazo ja vencido: uma volta que
- * grava zero itens e sempre marcada como parcial pede outra volta igual a
- * ela, e o sync nunca sai do lugar. Progresso lento termina; progresso zero,
- * nao.
- */
 export function acabouOTempo(prazoEm: number | undefined, jaGravados: number): boolean {
   if (prazoEm === undefined || jaGravados === 0) return false;
   return Date.now() >= prazoEm;
@@ -201,27 +266,60 @@ export async function persistMessages(params: {
   const contagem = { ...VAZIO };
   const itensTocados: string[] = [];
 
-  for (const mensagem of mensagens) {
-    if (acabouOTempo(prazoEm, contagem.created + contagem.updated)) {
-      contagem.interrompido = true;
-      break;
-    }
-
-    const dedupeKey = messageDedupeKey({
+  // 1. As chaves de deduplicacao da pagina inteira, resolvidas de uma vez.
+  const chaves = mensagens.map((mensagem) => ({
+    mensagem,
+    dedupeKey: messageDedupeKey({
       rfcMessageId: mensagem.rfcMessageId,
       fromEmail: mensagem.fromEmail,
       subject: mensagem.subject,
       receivedAt: mensagem.receivedAt,
-    });
+    }),
+  }));
 
-    const unifiedItemId = await vincularUnifiedItem(
-      userId,
-      'MESSAGE',
+  const idPorChave = await resolverUnifiedItems(
+    userId,
+    'MESSAGE',
+    chaves.map(({ mensagem, dedupeKey }) => ({
       dedupeKey,
-      mensagem.subject ?? undefined,
-      mensagem.fromEmail ?? undefined,
-      mensagem.receivedAt,
-    );
+      title: mensagem.subject ?? undefined,
+      preview: mensagem.fromEmail ?? undefined,
+      occurredAt: mensagem.receivedAt,
+    })),
+  );
+
+  // 2. As copias que ja existem, tambem numa consulta so.
+  const existentes = await prisma.message.findMany({
+    where: { connectionId, providerId: { in: mensagens.map((m) => m.providerId) } },
+    select: {
+      id: true,
+      providerId: true,
+      unifiedItemId: true,
+      mailboxId: true,
+      providerThreadId: true,
+      rfcMessageId: true,
+      subject: true,
+      snippet: true,
+      fromName: true,
+      fromEmail: true,
+      toEmails: true,
+      ccEmails: true,
+      receivedAt: true,
+      isRead: true,
+      isFlagged: true,
+      hasAttachments: true,
+      labels: true,
+    },
+  });
+  const porProviderId = new Map(existentes.map((linha) => [linha.providerId, linha]));
+
+  const paraCriar: Prisma.MessageCreateManyInput[] = [];
+
+  for (const { mensagem, dedupeKey } of chaves) {
+    const unifiedItemId = idPorChave.get(dedupeKey);
+    // Chave sem item resolvido so acontece se outra execucao apagou o item
+    // entre a resolucao e agora. Pular e melhor que gravar copia orfa.
+    if (!unifiedItemId) continue;
     itensTocados.push(unifiedItemId);
 
     const dados = {
@@ -244,23 +342,35 @@ export async function persistMessages(params: {
       labels: mensagem.labels as Prisma.InputJsonValue,
     };
 
-    const existente = await prisma.message.findUnique({
-      where: { connectionId_providerId: { connectionId, providerId: mensagem.providerId } },
-      select: { id: true, unifiedItemId: true },
-    });
+    const existente = porProviderId.get(mensagem.providerId);
 
-    if (existente) {
-      // A copia pode estar trocando de UnifiedItem (o assunto mudou e a chave
-      // de fallback mudou junto): o item antigo tambem precisa ser reconciliado.
-      if (existente.unifiedItemId) itensTocados.push(existente.unifiedItemId);
-      await prisma.message.update({ where: { id: existente.id }, data: dados });
-      contagem.updated += 1;
-    } else {
-      await prisma.message.create({
-        data: { connectionId, providerId: mensagem.providerId, ...dados },
-      });
+    if (!existente) {
+      paraCriar.push({ connectionId, providerId: mensagem.providerId, ...dados });
       contagem.created += 1;
+      continue;
     }
+
+    // A copia pode estar trocando de UnifiedItem (o assunto mudou e a chave
+    // de fallback mudou junto): o item antigo tambem precisa ser reconciliado.
+    if (existente.unifiedItemId) itensTocados.push(existente.unifiedItemId);
+
+    // NADA mudou: nao escreve. Este e o caso comum de um incremental, e era
+    // ele que custava uma escrita por mensagem sem mudar um byte.
+    if (!precisaGravar(dados, existente)) continue;
+
+    if (acabouOTempo(prazoEm, contagem.created + contagem.updated)) {
+      contagem.interrompido = true;
+      break;
+    }
+
+    await prisma.message.update({ where: { id: existente.id }, data: dados });
+    contagem.updated += 1;
+  }
+
+  if (paraCriar.length > 0) {
+    // `skipDuplicates`: outra execucao pode ter gravado a mesma pagina entre
+    // a leitura e agora. Reprocessar pagina e normal aqui.
+    await prisma.message.createMany({ data: paraCriar, skipDuplicates: true });
   }
 
   if (removidos.length > 0) {
@@ -297,36 +407,69 @@ export async function persistEvents(params: {
   const contagem = { ...VAZIO };
   const itensTocados: string[] = [];
 
+  // Evento de um calendario que ainda nao conhecemos: sera pego no proximo
+  // ciclo, depois da redescoberta. Ignorar e melhor que gravar orfao — mas
+  // CONTAR, senao o descarte fica indistinguivel de "nao veio evento".
+  const aceitos: { evento: RawEvent; calendarSourceId: string; dedupeKey: string }[] = [];
   for (const evento of eventos) {
-    if (acabouOTempo(prazoEm, contagem.created + contagem.updated)) {
-      contagem.interrompido = true;
-      break;
-    }
-
     const calendarSourceId = calendarIdPorProviderId.get(evento.calendarProviderId);
-    // Evento de um calendario que ainda nao conhecemos: sera pego no proximo
-    // ciclo, depois da redescoberta. Ignorar e melhor que gravar orfao — mas
-    // CONTAR, senao o descarte fica indistinguivel de "nao veio evento".
     if (!calendarSourceId) {
       contagem.skippedUnknownContainer += 1;
       continue;
     }
-
-    const dedupeKey = eventDedupeKey({
-      iCalUid: evento.iCalUid,
-      title: evento.title,
-      startsAt: evento.startsAt,
-      organizerEmail: evento.organizerEmail,
+    aceitos.push({
+      evento,
+      calendarSourceId,
+      dedupeKey: eventDedupeKey({
+        iCalUid: evento.iCalUid,
+        title: evento.title,
+        startsAt: evento.startsAt,
+        organizerEmail: evento.organizerEmail,
+      }),
     });
+  }
 
-    const unifiedItemId = await vincularUnifiedItem(
-      userId,
-      'EVENT',
+  const idPorChave = await resolverUnifiedItems(
+    userId,
+    'EVENT',
+    aceitos.map(({ evento, dedupeKey }) => ({
       dedupeKey,
-      evento.title ?? undefined,
-      evento.organizerEmail ?? undefined,
-      evento.startsAt,
-    );
+      title: evento.title ?? undefined,
+      preview: evento.organizerEmail ?? undefined,
+      occurredAt: evento.startsAt,
+    })),
+  );
+
+  const existentes = await prisma.calendarEvent.findMany({
+    where: { connectionId, providerId: { in: aceitos.map(({ evento }) => evento.providerId) } },
+    select: {
+      id: true,
+      providerId: true,
+      unifiedItemId: true,
+      calendarSourceId: true,
+      iCalUid: true,
+      recurringEventId: true,
+      title: true,
+      description: true,
+      location: true,
+      startsAt: true,
+      endsAt: true,
+      isAllDay: true,
+      timezone: true,
+      status: true,
+      responseStatus: true,
+      organizerEmail: true,
+      attendees: true,
+      conferenceUrl: true,
+    },
+  });
+  const porProviderId = new Map(existentes.map((linha) => [linha.providerId, linha]));
+
+  const paraCriar: Prisma.CalendarEventCreateManyInput[] = [];
+
+  for (const { evento, calendarSourceId, dedupeKey } of aceitos) {
+    const unifiedItemId = idPorChave.get(dedupeKey);
+    if (!unifiedItemId) continue;
     itensTocados.push(unifiedItemId);
 
     const dados = {
@@ -348,21 +491,28 @@ export async function persistEvents(params: {
       conferenceUrl: evento.conferenceUrl,
     };
 
-    const existente = await prisma.calendarEvent.findUnique({
-      where: { connectionId_providerId: { connectionId, providerId: evento.providerId } },
-      select: { id: true, unifiedItemId: true },
-    });
+    const existente = porProviderId.get(evento.providerId);
 
-    if (existente) {
-      if (existente.unifiedItemId) itensTocados.push(existente.unifiedItemId);
-      await prisma.calendarEvent.update({ where: { id: existente.id }, data: dados });
-      contagem.updated += 1;
-    } else {
-      await prisma.calendarEvent.create({
-        data: { connectionId, providerId: evento.providerId, ...dados },
-      });
+    if (!existente) {
+      paraCriar.push({ connectionId, providerId: evento.providerId, ...dados });
       contagem.created += 1;
+      continue;
     }
+
+    if (existente.unifiedItemId) itensTocados.push(existente.unifiedItemId);
+    if (!precisaGravar(dados, existente)) continue;
+
+    if (acabouOTempo(prazoEm, contagem.created + contagem.updated)) {
+      contagem.interrompido = true;
+      break;
+    }
+
+    await prisma.calendarEvent.update({ where: { id: existente.id }, data: dados });
+    contagem.updated += 1;
+  }
+
+  if (paraCriar.length > 0) {
+    await prisma.calendarEvent.createMany({ data: paraCriar, skipDuplicates: true });
   }
 
   if (removidos.length > 0) {
