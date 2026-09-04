@@ -57,8 +57,26 @@ export default async function PaginaConexoes({
       })
     : [];
   const agora = new Date();
-  // Quanto da ultima volta aconteceu, e nao so quando ela aconteceu.
-  const cobertura = coberturaDaUltimaVolta(conexoes);
+
+  // Uma regua so para a tela inteira.
+  //
+  // O frescor e calculado UMA vez por conta e serve tanto a faixa de cima
+  // quanto as linhas. Media-los separado foi o erro que esta tela ja teve:
+  // a faixa contava por `Connection.lastSyncAt` (otimista — qualquer recurso
+  // que termine bem grava ali) e as linhas pelo recurso mais atrasado, entao
+  // a faixa dizia "alcancou 5 de 6" enquanto so tres linhas pareciam
+  // recentes. Duas contas do mesmo fato, lado a lado.
+  const frescorPorConexao = new Map(
+    conexoes.map((conexao) => [
+      conexao.id,
+      frescorDaConexao(conexao, conexao.syncStates, agora),
+    ]),
+  );
+  const cobertura = coberturaDaUltimaVolta(
+    conexoes.map((conexao) => ({
+      lastSyncAt: frescorPorConexao.get(conexao.id)?.desde ?? null,
+    })),
+  );
 
   const googleConfigurado = Boolean(
     process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET,
@@ -174,7 +192,11 @@ export default async function PaginaConexoes({
             <p className="vazio">Nenhuma conta conectada ainda.</p>
           ) : (
             conexoes.map((conexao) => {
-              const frescor = frescorDaConexao(conexao, conexao.syncStates, agora);
+              const frescor = frescorPorConexao.get(conexao.id) ?? {
+                desde: null,
+                recurso: null,
+                minutos: null,
+              };
               const pill = estadoDaConexao(conexao, frescor, agora);
               return (
                 <div key={conexao.id} className="linha" style={{ alignItems: 'center' }}>
