@@ -73,51 +73,65 @@ jobs:
       # máquina do runner, o lugar mais distante possível da causa.
       #
       # Aconteceu na primeira execução, e custou uma volta inteira.
-      - name: Conferir o formato de SUPABASE_DB_URL
+      - name: Montar a string de conexão
         env:
-          URL: ${{ secrets.SUPABASE_DB_URL }}
+          SEGREDO: ${{ secrets.SUPABASE_DB_URL }}
+          # O REF NÃO É SEGREDO. Ele aparece na URL pública do projeto e no
+          # painel; guardá-lo aqui, em claro, é o que permite pedir só a senha.
+          REF: emczaelrtidkicabrllg
+          CLUSTER: aws-0-sa-east-1
         run: |
-          if [ -z "$URL" ]; then
-            echo "::error::SUPABASE_DB_URL está vazio. Defina-o nos segredos do repositório."
+          # ────────────────────────────────────────────────────────────────
+          # PEDE A SENHA, NÃO A STRING — a lição que a Torre já tinha aprendido
+          # ────────────────────────────────────────────────────────────────
+          #
+          # Este passo recusou o backup por dias com a mensagem "parece a SENHA
+          # sozinha, e não a string inteira". Estava certo sobre o fato e errado
+          # sobre a conclusão: se o que chegou é a senha, e o resto da string é
+          # público (ref, cluster, porta, usuário), então FALTA NADA. Só montar.
+          #
+          # `bin/cadastrar-variaveis.mjs`, na Torre, já dizia isso com todas as
+          # letras: "a tela do Supabase oferece três strings parecidas e a
+          # primeira delas é a que não funciona — pedir a string inteira é pedir
+          # que a pessoa acerte uma escolha que a interface convida a errar, e
+          # ela errou três vezes seguidas". Este workflow pedia a string inteira.
+          #
+          # Aceita as duas formas: URI completa passa direto; qualquer outra
+          # coisa é tratada como senha e vira URI aqui.
+
+          if [ -z "$SEGREDO" ]; then
+            echo "::error::SUPABASE_DB_URL está vazio. Ponha a SENHA do banco (só a senha) nos segredos do repositório."
             exit 1
           fi
 
-          # NORMALIZA ANTES DE JULGAR.
-          #
-          # `gh secret set` grava o que for colado, inclusive as aspas em volta e
-          # a quebra de linha do fim. Nenhuma das duas é visível para quem colou,
-          # e as duas fazem o pg_dump tratar a string como nome de banco.
-          # Recusar por causa de uma aspa que a pessoa não vê é recusar sem
-          # ensinar nada — então aqui elas saem, e o dump usa o valor limpo.
-          LIMPA=$(printf '%s' "$URL" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')
+          # `gh secret set` grava o que for colado, inclusive aspas em volta e a
+          # quebra de linha do fim — nenhuma das duas visível para quem colou.
+          LIMPO=$(printf '%s' "$SEGREDO" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')
 
-          case "$LIMPA" in
-            postgres://*|postgresql://*) ;;
-            *) # NUNCA ECOAR O VALOR.
-               #
-               # A versão anterior imprimia os 12 primeiros caracteres, com o
-               # argumento de que "o começo é o esquema, nunca a credencial".
-               # O argumento só vale se o valor FOR uma URL — e este ramo existe
-               # justamente para quando ele não é. Quando alguém cola só a
-               # senha, os 12 primeiros caracteres SÃO a senha, e ela foi parar
-               # no log de um repositório público.
-               #
-               # A forma descreve o suficiente para diagnosticar: tamanho, se
-               # tem "@", se tem "://". Nada disso identifica o segredo.
-               echo "::error::SUPABASE_DB_URL não é uma URI de conexão. Recebi $(printf '%s' "$LIMPA" | wc -c | tr -d ' ') caracteres, $(case "$LIMPA" in *://*) echo 'com';; *) echo 'SEM';; esac) esquema e $(case "$LIMPA" in *@*) echo 'com';; *) echo 'SEM';; esac) arroba — parece a SENHA sozinha, e não a string inteira. Formato: postgresql://USUARIO.REF:SENHA@aws-0-REGIAO.pooler.supabase.com:5432/postgres (Session pooler; o host direto db.REF.supabase.co não serve, só tem IPv6)."
-               exit 1 ;;
+          case "$LIMPO" in
+            postgres://*|postgresql://*)
+              URL_FINAL="$LIMPO"
+              echo "Recebi uma URI completa; usando como está."
+              ;;
+            *)
+              # A SENHA VAI CODIFICADA. Um "@" ou ":" na senha quebra a string em
+              # pedaços errados, e o erro resultante fala de host inválido — a
+              # pista mais distante possível da causa.
+              SENHA_ESC=$(printf '%s' "$LIMPO" | jq -sRr @uri)
+              URL_FINAL="postgresql://postgres.${REF}:${SENHA_ESC}@${CLUSTER}.pooler.supabase.com:5432/postgres"
+              echo "Recebi uma senha; montei a string do Session pooler para o projeto ${REF}."
+              ;;
           esac
-          # O resto do job usa a versão limpa.
-          echo "URL_BANCO=$LIMPA" >> "$GITHUB_ENV"
-          case "$LIMPA" in
-            *db.*.supabase.co*) echo "::error::SUPABASE_DB_URL aponta para o host DIRETO (db.REF.supabase.co). Ele só tem endereço IPv6 e o runner do GitHub não alcança IPv6. Use a string do Session pooler, cujo host termina em pooler.supabase.com."
-               exit 1 ;;
-          esac
-          case "$LIMPA" in
-            *'[YOUR-PASSWORD]'*) echo "::error::A senha continua como o marcador que o Supabase mostra ([YOUR-PASSWORD]). Troque pelo valor real."
-               exit 1 ;;
-          esac
-          echo "formato ok: $(printf '%s' "$LIMPA" | sed -E 's#//[^@]*@#//***@#')"
+
+          # NUNCA ECOAR O VALOR — nem um pedaço. A versão anterior imprimia os
+          # 12 primeiros caracteres com o argumento de que "o começo é o
+          # esquema, nunca a credencial". O argumento só valia se o valor FOSSE
+          # uma URL, e o ramo existia justamente para quando não era: quando
+          # alguém colou só a senha, os 12 primeiros caracteres ERAM a senha, e
+          # ela foi parar no log de um repositório público.
+          echo "::add-mask::$LIMPO"
+          echo "::add-mask::$URL_FINAL"
+          echo "URL_BANCO=$URL_FINAL" >> "$GITHUB_ENV"
 
       - name: Dump (schema public)
         run: |
