@@ -27,17 +27,30 @@ import { prisma } from '@/lib/db';
  * Devolve 200 quando o banco responde e 503 quando não. O status é a resposta:
  * o corpo é para gente, o código é para o robô.
  *
- * ── Duas medidas, e a diferença entre elas é o diagnóstico ──────────────────
+ * ── Quatro medidas, porque três hipóteses ───────────────────────────────────
  *
- * `latenciaBancoMs` é o PRIMEIRO `select 1`; `latenciaConsultaMs` é o segundo,
- * imediatamente depois. A primeira consulta de uma instância fria paga o
- * aperto de mão inteiro — TCP, TLS, autenticação, pegar conexão no pooler —,
- * a segunda já encontra a conexão aberta. Só uma medida não distingue "o banco
- * está longe" de "o banco está lento", e as duas pedem consertos opostos: uma
- * é região, a outra é carga.
+ * `latenciaBancoMs` é o PRIMEIRO `select 1` e paga o aperto de mão inteiro
+ * (TCP, TLS, autenticação, pegar conexão no pooler). `latenciaConsultaMs` é o
+ * segundo, com a conexão já aberta.
  *
- *     primeira alta, segunda baixa  → custo de conexão fria
- *     as duas altas                 → distância ou banco sobrecarregado
+ * As duas juntas mostraram 1455 ms e 583 ms — e eu li isso como "o banco está
+ * longe". Estava errado: o log do backup diário prova que o projeto já roda em
+ * `aws-0-sa-east-1`, a mesma São Paulo do `gru1` da Vercel. Distância não
+ * explica 583 ms entre vizinhos.
+ *
+ * Faltavam duas medidas para separar o que sobrou:
+ *
+ * `latenciaDezMs` são DEZ `select 1` em sequência. Dividido por dez, é o custo
+ * de uma ida e volta. Se bater com `latenciaConsultaMs`, o gargalo é POR
+ * VIAGEM — rede ou pooler no caminho.
+ *
+ * `latenciaTrabalhoMs` é UMA consulta que faz trabalho de verdade no servidor
+ * (varrer 200 mil linhas geradas) e volta um número só. Uma viagem, muito
+ * processamento. Se ela for desproporcionalmente lenta, o gargalo é a MÁQUINA
+ * — instância pequena, crédito de CPU esgotado, IO estourado.
+ *
+ *     por viagem alto, trabalho rápido  → caminho da conexão (pooler, rede)
+ *     trabalho também lento             → a instância do banco está sufocada
  *
  * ── E o `commit` ────────────────────────────────────────────────────────────
  *
@@ -53,9 +66,10 @@ import { prisma } from '@/lib/db';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// O padrão de 10s é generoso demais aqui. Se o banco não responde em 5, ele
-// está fora para efeito prático — e a sonda precisa dizer isso rápido.
-export const maxDuration = 10;
+// 30s, e não os 10 de antes: a sonda passou a fazer treze idas e voltas de
+// propósito, e num banco de 583 ms por viagem isso não cabe em 10. Cortar a
+// medição justamente onde ela dói esconderia a resposta.
+export const maxDuration = 30;
 
 /** Curto de propósito: identifica a versão sem virar um dump do ambiente. */
 function commitNoAr(): string {
@@ -72,10 +86,22 @@ export async function GET() {
     await prisma.$queryRaw`select 1`;
     const primeira = Date.now() - comecou;
 
-    // A segunda consulta é o que importa para saber se o banco está longe: a
-    // conexão já está aberta, então sobra só a ida e volta.
+    // Segunda consulta: a conexão já está aberta, sobra a ida e volta.
     const antesDaSegunda = Date.now();
     await prisma.$queryRaw`select 1`;
+    const segunda = Date.now() - antesDaSegunda;
+
+    // Dez viagens. Dividido por dez dá o custo de uma, com menos ruído que
+    // uma medida só.
+    const antesDasDez = Date.now();
+    for (let i = 0; i < 10; i += 1) await prisma.$queryRaw`select 1`;
+    const dez = Date.now() - antesDasDez;
+
+    // Uma viagem só, com trabalho de verdade do outro lado. Separa "a rede
+    // custa caro" de "a máquina está sufocada".
+    const antesDoTrabalho = Date.now();
+    await prisma.$queryRaw`select count(*) from generate_series(1, 200000)`;
+    const trabalho = Date.now() - antesDoTrabalho;
 
     return NextResponse.json(
       {
@@ -84,7 +110,10 @@ export async function GET() {
         commit,
         em: new Date().toISOString(),
         latenciaBancoMs: primeira,
-        latenciaConsultaMs: Date.now() - antesDaSegunda,
+        latenciaConsultaMs: segunda,
+        latenciaDezMs: dez,
+        porViagemMs: Math.round(dez / 10),
+        latenciaTrabalhoMs: trabalho,
       },
       { headers: { 'cache-control': 'no-store' } }
     );

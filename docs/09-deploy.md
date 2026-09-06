@@ -390,12 +390,12 @@ Postgres de verdade (não entra no `pnpm test`: a CI não sobe banco). Rodando o
 mesmo arnês na versão antiga, os 13 invariantes passam igual e só um difere —
 "reprocessar não reescreve", que é exatamente a mudança.
 
-**A latência medida é motivo de migração, não de mais um ajuste.** Os 583 ms
-por consulta vêm da distância entre o `gru1` da Vercel e a região padrão do
-Supabase. A gravação em lote fez o app caber nisso; mudar de região é o que faz
-ele deixar de conviver com isso. O roteiro ensaiado está em
-`docs/14-migracao-do-banco.md`, com `scripts/migrar-banco.sh` e
-`scripts/conferir-migracao.sh`.
+**Os 583 ms por consulta NÃO são distância.** Eu concluí que eram e propus
+mudar de região; o log do backup diário provou o contrário — ele conecta por
+`aws-0-sa-east-1.pooler.supabase.com`, e o pooler do Supabase é regional, então
+o banco já está em São Paulo, a mesma cidade do `gru1`. A medida era real, a
+explicação era palpite. Ver `docs/14-migracao-do-banco.md`, que guarda o erro e
+o roteiro de migração (ensaiado, e útil para uma troca de projeto ou provedor).
 
 **A sonda `/api/saude` diz qual commit está no ar.** Sete caracteres do SHA, e
 não é enfeite: mais de uma rodada de depuração se perdeu num sintoma que o

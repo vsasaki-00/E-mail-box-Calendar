@@ -1,29 +1,66 @@
-# Migrar o banco para São Paulo
+# Migrar o banco de região
 
-## Por que
+> **O banco JÁ ESTÁ em São Paulo. Esta migração não é para fazer agora.**
+>
+> O roteiro abaixo está ensaiado e continua valendo — para uma troca de
+> projeto, de conta ou de provedor. Mas a razão que o motivou estava errada, e
+> a correção fica registrada aqui porque o erro foi meu e é instrutivo.
 
-Medido em produção, no projeto atual:
+## O que eu concluí, e por que estava errado
+
+Medido em produção:
 
 ```
 latenciaBancoMs:     1455   ← primeira consulta, com aperto de mão
 latenciaConsultaMs:   583   ← segunda, conexão já aberta
 ```
 
-583 ms para um `select 1` **com a conexão já aberta** não é custo de conectar:
-é distância. O mesmo `select 1` num Postgres local responde em 1–2 ms.
+583 ms para um `select 1` com a conexão já aberta não é custo de conectar. Daí
+eu concluí "o banco está longe" e propus mudar de região.
 
-Isso não é um detalhe de desempenho, é o teto do que o app consegue fazer. A
-Vercel roda em `gru1` (São Paulo); o projeto Supabase, na região padrão
-(Virgínia). Cada ida e volta atravessa o Atlântico:
+A prova de que não estava veio do **log do backup diário**, que roda neste
+mesmo repositório:
 
-| operação | consultas | a 583 ms | a 5 ms |
-| --- | ---: | ---: | ---: |
-| abrir a Torre | ~14 | 8 s | 70 ms |
-| gravar uma página de sync | 8 | 4,7 s | 40 ms |
-| gravar uma página, versão antiga | 104 | 61 s (estourava) | 0,5 s |
+```
+REF: emczaelrtidkicabrllg
+CLUSTER: aws-0-sa-east-1
+Recebi uma senha; montei a string do Session pooler para o projeto …
+pg_dump … → 1.2M, DUMP_SEGUNDOS: 19
+tabelas restauradas: 25 · linhas (estimadas): 10834
+```
 
-A gravação em lote (ver `docs/09-deploy.md`) fez o app **caber** nessa
-latência. Mudar de região é o que faz ele deixar de conviver com ela.
+O pooler do Supabase é **regional**: um projeto que não está em `sa-east-1` não
+é alcançável pelo pooler de `sa-east-1`. O backup conecta por
+`aws-0-sa-east-1.pooler.supabase.com` e funciona há três execuções seguidas —
+logo o banco está em São Paulo, a mesma cidade do `gru1` onde a Vercel roda as
+funções. Distância não explica 583 ms entre vizinhos.
+
+**A lição é a de sempre neste projeto, e eu não a apliquei:** eu tinha uma
+medida (583 ms) e uma explicação plausível (distância), e tratei a segunda como
+se a primeira a provasse. A medida era real; a explicação, um palpite. O que
+faltava era o experimento que separa as hipóteses — e ele agora está na sonda.
+
+## O que a sonda mede agora
+
+`/api/saude` devolve quatro números, e o desenho deles é para não deixar
+palpite passar por diagnóstico:
+
+| campo | o que é |
+| --- | --- |
+| `latenciaBancoMs` | primeira consulta, com aperto de mão |
+| `latenciaConsultaMs` | segunda, conexão aberta |
+| `porViagemMs` | dez `select 1` divididos por dez — custo de UMA ida e volta |
+| `latenciaTrabalhoMs` | uma viagem só, varrendo 200 mil linhas no servidor |
+
+```
+por viagem alto, trabalho rápido  → o caminho da conexão (pooler, rede)
+trabalho também lento             → a instância do banco está sufocada
+```
+
+Referência de um Postgres local saudável: `porViagemMs: 1`,
+`latenciaTrabalhoMs: 26`. O trabalho custa ~26× uma viagem. Se em produção essa
+proporção estiver invertida, o problema é o caminho; se as duas escalarem
+juntas, é a máquina.
 
 ## O que a migração preserva
 
