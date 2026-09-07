@@ -390,12 +390,20 @@ Postgres de verdade (não entra no `pnpm test`: a CI não sobe banco). Rodando o
 mesmo arnês na versão antiga, os 13 invariantes passam igual e só um difere —
 "reprocessar não reescreve", que é exatamente a mudança.
 
-**Os 583 ms por consulta NÃO são distância.** Eu concluí que eram e propus
-mudar de região; o log do backup diário provou o contrário — ele conecta por
-`aws-0-sa-east-1.pooler.supabase.com`, e o pooler do Supabase é regional, então
-o banco já está em São Paulo, a mesma cidade do `gru1`. A medida era real, a
-explicação era palpite. Ver `docs/14-migracao-do-banco.md`, que guarda o erro e
-o roteiro de migração (ensaiado, e útil para uma troca de projeto ou provedor).
+**A função roda onde o `vercel.json` mandar, e ele não mandava nada.** Os 583 ms
+por consulta eram o banco em São Paulo e a função em **Washington**: sem a chave
+`regions`, o padrão do plano é `iad1`. Daí `"regions": ["gru1"]` — a linha que
+faltava, e que vale mais que qualquer ajuste de código que eu tenha feito antes
+dela.
+
+Duas conclusões erradas vieram antes: "o banco está longe" (desmentida pelo log
+do backup, que conecta pelo pooler de `sa-east-1`) e "a instância está sufocada"
+(desmentida pelo `pg_stat_statements`, com o servidor executando em 33 ms o que
+um Postgres local faz em 26). O que me manteve errado foi ler `gru1::abc…` nos
+códigos de `FUNCTION_INVOCATION_TIMEOUT`: aquilo é a BORDA que atendeu o
+navegador, não onde a função executa. Por isso a sonda passou a devolver
+`regiao`, de `VERCEL_REGION` — para isso se ver, não se deduzir. O registro
+inteiro está em `docs/14-migracao-do-banco.md`.
 
 **A sonda `/api/saude` diz qual commit está no ar.** Sete caracteres do SHA, e
 não é enfeite: mais de uma rodada de depuração se perdeu num sintoma que o

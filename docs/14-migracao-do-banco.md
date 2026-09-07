@@ -1,12 +1,12 @@
 # Migrar o banco de região
 
-> **O banco JÁ ESTÁ em São Paulo. Esta migração não é para fazer agora.**
+> **O banco já estava em São Paulo, e a lentidão era a FUNÇÃO, não o banco.**
 >
 > O roteiro abaixo está ensaiado e continua valendo — para uma troca de
-> projeto, de conta ou de provedor. Mas a razão que o motivou estava errada, e
-> a correção fica registrada aqui porque o erro foi meu e é instrutivo.
+> projeto, de conta ou de provedor. Mas a migração nunca foi o conserto deste
+> problema, e o registro do erro fica aqui porque ele foi meu, e caro.
 
-## O que eu concluí, e por que estava errado
+## Duas conclusões erradas antes da certa
 
 Medido em produção:
 
@@ -15,52 +15,52 @@ latenciaBancoMs:     1455   ← primeira consulta, com aperto de mão
 latenciaConsultaMs:   583   ← segunda, conexão já aberta
 ```
 
-583 ms para um `select 1` com a conexão já aberta não é custo de conectar. Daí
-eu concluí "o banco está longe" e propus mudar de região.
+**Erro 1 — "o banco está longe".** Propus migrar de região. O log do backup
+diário desmentiu: ele conecta por `aws-0-sa-east-1.pooler.supabase.com`, o
+pooler do Supabase é regional, e a API confirma `Meridiano` em `sa-east-1`,
+`ACTIVE_HEALTHY`. O banco estava em São Paulo o tempo todo.
 
-A prova de que não estava veio do **log do backup diário**, que roda neste
-mesmo repositório:
+**Erro 2 — "então é a instância do banco".** Também não. O
+`pg_stat_statements` do próprio projeto mostra o servidor executando a consulta
+de carga da sonda em **33 ms** — o mesmo que um Postgres local (26 ms). A
+máquina estava saudável.
 
+**A causa.** `vercel.json` não declarava `regions`, e o padrão do plano é
+`iad1` — **Washington**. Banco em São Paulo, função em Washington: cada ida e
+volta atravessa o equador, e 583 ms deixa de ter mistério.
+
+O que me manteve errado por duas rodadas foi ler `gru1::abc…` nos códigos de
+erro `FUNCTION_INVOCATION_TIMEOUT` e concluir que a função rodava em São Paulo.
+Aquele `gru1` é a **borda** que atendeu o navegador, não onde a função executa.
+Um identificador parecido com a resposta que eu queria.
+
+O conserto é uma linha:
+
+```json
+{ "regions": ["gru1"] }
 ```
-REF: emczaelrtidkicabrllg
-CLUSTER: aws-0-sa-east-1
-Recebi uma senha; montei a string do Session pooler para o projeto …
-pg_dump … → 1.2M, DUMP_SEGUNDOS: 19
-tabelas restauradas: 25 · linhas (estimadas): 10834
-```
 
-O pooler do Supabase é **regional**: um projeto que não está em `sa-east-1` não
-é alcançável pelo pooler de `sa-east-1`. O backup conecta por
-`aws-0-sa-east-1.pooler.supabase.com` e funciona há três execuções seguidas —
-logo o banco está em São Paulo, a mesma cidade do `gru1` onde a Vercel roda as
-funções. Distância não explica 583 ms entre vizinhos.
-
-**A lição é a de sempre neste projeto, e eu não a apliquei:** eu tinha uma
-medida (583 ms) e uma explicação plausível (distância), e tratei a segunda como
-se a primeira a provasse. A medida era real; a explicação, um palpite. O que
-faltava era o experimento que separa as hipóteses — e ele agora está na sonda.
+E a sonda passou a devolver `regiao` (de `VERCEL_REGION`), que é onde a função
+**está rodando** — para a próxima pergunta dessas ser respondida olhando, e não
+deduzindo.
 
 ## O que a sonda mede agora
 
-`/api/saude` devolve quatro números, e o desenho deles é para não deixar
-palpite passar por diagnóstico:
-
-| campo | o que é |
+| campo | o que responde |
 | --- | --- |
+| `regiao` | onde a FUNÇÃO roda (não a borda) |
 | `latenciaBancoMs` | primeira consulta, com aperto de mão |
 | `latenciaConsultaMs` | segunda, conexão aberta |
-| `porViagemMs` | dez `select 1` divididos por dez — custo de UMA ida e volta |
-| `latenciaTrabalhoMs` | uma viagem só, varrendo 200 mil linhas no servidor |
+| `porViagemMs` | dez `select 1` ÷ 10 — custo de UMA ida e volta |
+| `latenciaTrabalhoMs` | uma viagem, varrendo 200 mil linhas no servidor |
 
 ```
-por viagem alto, trabalho rápido  → o caminho da conexão (pooler, rede)
+por viagem alto, trabalho rápido  → o caminho (região errada, pooler, rede)
 trabalho também lento             → a instância do banco está sufocada
 ```
 
 Referência de um Postgres local saudável: `porViagemMs: 1`,
-`latenciaTrabalhoMs: 26`. O trabalho custa ~26× uma viagem. Se em produção essa
-proporção estiver invertida, o problema é o caminho; se as duas escalarem
-juntas, é a máquina.
+`latenciaTrabalhoMs: 26`.
 
 ## O que a migração preserva
 

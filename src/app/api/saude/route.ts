@@ -81,6 +81,7 @@ function commitNoAr(): string {
 export async function GET() {
   const comecou = Date.now();
   const commit = commitNoAr();
+  const regiao = process.env.VERCEL_REGION ?? 'local';
 
   try {
     await prisma.$queryRaw`select 1`;
@@ -108,6 +109,7 @@ export async function GET() {
         ok: true,
         banco: 'ok',
         commit,
+        regiao,
         em: new Date().toISOString(),
         latenciaBancoMs: primeira,
         latenciaConsultaMs: segunda,
@@ -125,6 +127,7 @@ export async function GET() {
         ok: false,
         banco: 'fora',
         commit,
+        regiao,
         em: new Date().toISOString(),
         latenciaBancoMs: Date.now() - comecou,
       },
