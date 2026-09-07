@@ -396,6 +396,24 @@ por consulta eram o banco em São Paulo e a função em **Washington**: sem a ch
 faltava, e que vale mais que qualquer ajuste de código que eu tenha feito antes
 dela.
 
+**Confirmado em produção**, e a conta fecha sem sobra:
+
+| | Washington | São Paulo |
+| --- | ---: | ---: |
+| `regiao` | `iad1` | `gru1` |
+| primeira consulta (com aperto de mão) | 1455 ms | **217 ms** |
+| consulta com conexão aberta | 583 ms | **29 ms** |
+| por ida e volta | — | **30 ms** |
+| consulta de carga (200 mil linhas) | — | **63 ms** |
+
+Os 63 ms fecham a aritmética: o `pg_stat_statements` do projeto mostra o
+servidor executando essa consulta em **33 ms**, e 33 + 30 de viagem = 63. Não
+sobra nada para explicar — é a diferença entre um modelo que descreve os
+números e um palpite que combina com eles.
+
+O efeito no app: a Torre sai de ~8 s de banco para ~0,4 s, e uma página de sync
+de 4,7 s para 0,24 s.
+
 Duas conclusões erradas vieram antes: "o banco está longe" (desmentida pelo log
 do backup, que conecta pelo pooler de `sa-east-1`) e "a instância está sufocada"
 (desmentida pelo `pg_stat_statements`, com o servidor executando em 33 ms o que

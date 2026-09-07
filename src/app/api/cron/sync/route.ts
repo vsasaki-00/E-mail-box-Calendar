@@ -72,12 +72,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // morta para sempre — e o erro aparecia na consulta mais banal do próximo
   // sync, longe de quem causou.
   //
-  // Agora o orçamento impede PEGAR recurso novo, e a rota espera o recurso em
-  // andamento terminar. O teto é o orçamento MAIS um recurso — e é por isso
-  // que ele é 15s e não 25s: 25 + um recurso lento não cabia, e a conta toda
-  // virava FUNCTION_INVOCATION_TIMEOUT. Um recurso é limitado pelo orçamento
-  // do conector (6s de busca) mais a gravação de uma página de 25 itens.
-  const ORCAMENTO_SYNC_MS = 15_000;
+  // O orçamento impede PEGAR recurso novo, e a rota espera o recurso em
+  // andamento terminar. O teto é o orçamento MAIS um recurso.
+  //
+  // Foram 15s enquanto a função rodava em Washington e cada consulta custava
+  // 583 ms: um recurso sozinho já ameaçava os 60s. Com a função em São Paulo
+  // (`regions: ["gru1"]`) a viagem caiu para ~30 ms, e a página de gravação
+  // inteira — oito consultas — custa 0,24s. Um recurso agora é ~10s, quase
+  // tudo esperando o provedor. 25 + 10 cabe com folga, e cada volta cobre
+  // mais contas: era isso que fazia o ciclo alcançar 5 de 6 em vez de 6.
+  const ORCAMENTO_SYNC_MS = 25_000;
 
   // Onde a GRAVACAO para, mesmo no meio de uma pagina. Deixa ~15s de folga
   // sobre os 60s da plataforma para a reconciliacao e a resposta.
