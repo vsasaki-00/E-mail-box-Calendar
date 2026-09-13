@@ -18,11 +18,20 @@
 # franquia de TODOS os produtos, e em 12/09 a franquia acabou: o GitHub parou
 # de iniciar todos os jobs da conta, inclusive os seis backups diários.
 #
-# Uma vez por dia custa ~547. O que se perde está dito sem rodeio: a caixa
-# passa a ser lida de manhã e o que chegar depois espera o dia seguinte. Se a
-# carga de um dia não couber nos 15 minutos do laço, a sobra vai para o dia
-# seguinte e pode acumular — é o sinal de que o caminho passa a ser pagar o
-# Actions, assinar o Vercel Pro, ou mover este laço para uma máquina que já
+# Uma vez por dia custa ~547, e SÓ EM DIA ÚTIL custa ~396 — é a versão que
+# ficou. O que se perde está dito sem rodeio: a caixa passa a ser lida de
+# manhã, o que chegar depois espera o dia seguinte, e o que chegar na sexta à
+# tarde espera até segunda de manhã. Para uma caixa de escritório isso combina
+# com quem escreve para ela; para uma caixa que recebe cliente no fim de
+# semana, não combina, e a correção é uma linha.
+#
+# A rede de segurança do `vercel.json` continua rodando TODO dia, inclusive
+# sábado e domingo — ela processa bem menos (o que cabe em ~25 s contra os 15
+# minutos do laço daqui), mas não deixa o fim de semana sem nenhuma passada.
+#
+# Se a carga de um dia não couber nos 15 minutos do laço, a sobra vai para o
+# dia seguinte e pode acumular — é o sinal de que o caminho passa a ser pagar
+# o Actions, assinar o Vercel Pro, ou mover este laço para uma máquina que já
 # esteja ligada, como o backup da Torre de Controle faz desde 12/09.
 #
 # Se um dia o projeto virar Pro na Vercel, dá para mover o horário para o
@@ -36,7 +45,9 @@ on:
     # verão no Brasil desde 2019), então isto é 07h de Brasília — a passada
     # ficou na PRIMEIRA das três que existiam, e não na do meio, para a caixa
     # do dia começar lida em vez de terminar lida.
-    - cron: '0 10 * * *'
+    # `1-5` é segunda a sexta. Fim de semana fica com a rede de segurança do
+    # `vercel.json`, que é diária.
+    - cron: '0 10 * * 1-5'
   # Para disparar à mão pela aba Actions, sem esperar o horário.
   workflow_dispatch:
 
