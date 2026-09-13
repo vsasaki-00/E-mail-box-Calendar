@@ -1,10 +1,29 @@
-# Sincronização automática das caixas, 3× por dia.
+# Sincronização automática das caixas, 1× por dia.
 #
 # Por que aqui e não no `vercel.json`: o plano Hobby da Vercel só aceita cron
 # uma vez por dia — um `0 7,13,19 * * *` ali faz o deploy ser RECUSADO, não
-# ignorado. O Actions não tem esse limite e roda de graça em repositório
-# público. O `vercel.json` segue com o disparo diário como rede de segurança:
-# se este workflow for desligado, a sincronização não para de vez.
+# ignorado. O `vercel.json` segue com o disparo diário como rede de segurança:
+# se este workflow for desligado, a sincronização não para de vez. Mas rede de
+# segurança não é substituto: a rota da Vercel processa o que cabe em ~25 s,
+# enquanto aqui o laço tem 15 minutos para esvaziar o que estiver vencido.
+#
+# ERA 3× POR DIA ATÉ 13/09/2026, E O MOTIVO DA MUDANÇA É DINHEIRO.
+#
+# A frase "roda de graça em repositório público" que estava aqui envelheceu:
+# este repositório é PRIVADO, e no privado o GitHub cobra por minuto com a
+# franquia de 2.000 por mês para a conta inteira. Medido em setembro: cada
+# execução deste workflow custa 18 MINUTOS cobrados — de longe o job mais caro
+# da casa, porque ele trabalha de verdade (o laço vai até esvaziar ou até
+# estourar o próprio relógio). Três por dia são ~1.640 minutos por mês, 82% da
+# franquia de TODOS os produtos, e em 12/09 a franquia acabou: o GitHub parou
+# de iniciar todos os jobs da conta, inclusive os seis backups diários.
+#
+# Uma vez por dia custa ~547. O que se perde está dito sem rodeio: a caixa
+# passa a ser lida de manhã e o que chegar depois espera o dia seguinte. Se a
+# carga de um dia não couber nos 15 minutos do laço, a sobra vai para o dia
+# seguinte e pode acumular — é o sinal de que o caminho passa a ser pagar o
+# Actions, assinar o Vercel Pro, ou mover este laço para uma máquina que já
+# esteja ligada, como o backup da Torre de Controle faz desde 12/09.
 #
 # Se um dia o projeto virar Pro na Vercel, dá para mover o horário para o
 # `vercel.json` e apagar este arquivo.
@@ -13,9 +32,11 @@ name: Sincronizar caixas
 
 on:
   schedule:
-    # Horários em UTC. São Paulo é UTC-3 o ano todo (não há mais horário de
-    # verão no Brasil desde 2019), então isto é 07h, 13h e 19h de Brasília.
-    - cron: '0 10,16,22 * * *'
+    # Horário em UTC. São Paulo é UTC-3 o ano todo (não há mais horário de
+    # verão no Brasil desde 2019), então isto é 07h de Brasília — a passada
+    # ficou na PRIMEIRA das três que existiam, e não na do meio, para a caixa
+    # do dia começar lida em vez de terminar lida.
+    - cron: '0 10 * * *'
   # Para disparar à mão pela aba Actions, sem esperar o horário.
   workflow_dispatch:
 
