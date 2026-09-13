@@ -28,7 +28,23 @@ name: Backup do banco
 
 on:
   schedule:
-    - cron: '0 9 * * *'   # 06:00 em São Paulo
+    # DIA SIM, DIA NÃO desde 13/09/2026, e o motivo é a franquia.
+    #
+    # O Actions dá 2.000 minutos por mês para a conta INTEIRA, e em 12/09
+    # ela acabou: o GitHub parou de iniciar todos os jobs, inclusive este.
+    # O dump DIÁRIO passou a nascer na máquina do titular — bin/backup-no-mac.mjs,
+    # no repositório da Torre, 06:30, com o mesmo restore de teste e a mesma
+    # prova por contagem. Aqui ficou a SEGUNDA cópia, em dias alternados:
+    # perder as duas no mesmo dia exige o Mac desligado E o dia certo, que
+    # são falhas independentes.
+    #
+    # `*/2` no dia do MÊS cai nos ímpares. Em mês de 31 dias, o 31 e o 1
+    # ficam colados — dois dias seguidos, nunca um buraco maior. Cron não
+    # sabe dizer "a cada 48 horas", e repetir é melhor que abrir buraco.
+    #
+    # O que se perde, dito sem rodeio: a janela de perda desta cópia dobra,
+    # de 24 h para 48 h. Quem cobre o meio é o Mac.
+    - cron: '0 9 */2 * *'   # 06:00 em São Paulo
   workflow_dispatch:
 
 jobs:
